@@ -318,138 +318,6 @@ fun CreateAccountDialog(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // CUSTOM PASSWORD / 4-DIGIT PIN SECTION
-                Card(
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = TitaniumCardBg),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, GoldPrimary.copy(alpha = 0.4f)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.Lock,
-                                contentDescription = "Lock PIN",
-                                tint = GoldPrimary,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "Set Password / 4-Digit Security PIN",
-                                color = TextWhitePrimary,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        Text(
-                            text = "Used to sign in and unlock the bullion app on this device.",
-                            color = Color.Gray,
-                            fontSize = 10.sp
-                        )
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            OutlinedTextField(
-                                value = pin,
-                                onValueChange = {
-                                    if (it.length <= 32) {
-                                        pin = it
-                                        validationError = null
-                                    }
-                                },
-                                label = { Text("Password / PIN", fontSize = 11.sp) },
-                                placeholder = { Text("••••", fontSize = 12.sp) },
-                                visualTransformation = PasswordVisualTransformation(),
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedTextColor = TextWhitePrimary,
-                                    unfocusedTextColor = TextWhitePrimary,
-                                    focusedBorderColor = GoldPrimary,
-                                    unfocusedBorderColor = TitaniumBorder
-                                ),
-                                modifier = Modifier.weight(1f).testTag("input_account_pin"),
-                                singleLine = true
-                            )
-
-                            OutlinedTextField(
-                                value = confirmPin,
-                                onValueChange = {
-                                    if (it.length <= 32) {
-                                        confirmPin = it
-                                        validationError = null
-                                    }
-                                },
-                                label = { Text("Confirm", fontSize = 11.sp) },
-                                placeholder = { Text("••••", fontSize = 12.sp) },
-                                visualTransformation = PasswordVisualTransformation(),
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedTextColor = TextWhitePrimary,
-                                    unfocusedTextColor = TextWhitePrimary,
-                                    focusedBorderColor = GoldPrimary,
-                                    unfocusedBorderColor = TitaniumBorder
-                                ),
-                                modifier = Modifier.weight(1f).testTag("input_account_confirm_pin"),
-                                singleLine = true
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Checkbox(
-                                checked = enableLockNow,
-                                onCheckedChange = { enableLockNow = it },
-                                colors = CheckboxDefaults.colors(checkedColor = GoldPrimary)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "Activate 4-digit App Lock right now",
-                                color = Color.LightGray,
-                                fontSize = 11.sp
-                            )
-                        }
-
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Checkbox(
-                                checked = enableBiometricNow,
-                                onCheckedChange = { enableBiometricNow = it },
-                                colors = CheckboxDefaults.colors(checkedColor = GoldPrimary)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "Enable Biometric Unlock (Fingerprint / Face)",
-                                color = Color.LightGray,
-                                fontSize = 11.sp
-                            )
-                        }
-                    }
-                }
-
-                // Error Banner
-                if (validationError != null) {
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Text(
-                        text = validationError ?: "",
-                        color = Color(0xFFFF8A80),
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
                 // Action Buttons
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -467,7 +335,6 @@ fun CreateAccountDialog(
                         onClick = {
                             val cleanUser = username.trim().removePrefix("@")
                             val cleanName = name.trim()
-                            val cleanPin = pin.trim()
 
                             if (cleanUser.isBlank()) {
                                 validationError = "Please enter a username"
@@ -479,14 +346,6 @@ fun CreateAccountDialog(
                             }
                             if (email.isBlank() || !email.contains("@")) {
                                 validationError = "Please enter a valid email address"
-                                return@Button
-                            }
-                            if (cleanPin.length < 4) {
-                                validationError = "Password / PIN must be at least 4 characters"
-                                return@Button
-                            }
-                            if (cleanPin != confirmPin.trim()) {
-                                validationError = "Password / PIN and Confirm do not match"
                                 return@Button
                             }
 
@@ -508,9 +367,9 @@ fun CreateAccountDialog(
                                 phone = phone,
                                 city = if (city.isNotBlank()) city else "Coimbatore",
                                 role = selectedRole,
-                                pin4Digit = cleanPin,
-                                enableLockImmediately = enableLockNow,
-                                enableBiometric = enableBiometricNow
+                                pin4Digit = "1234",
+                                enableLockImmediately = false,
+                                enableBiometric = false
                             )
                             onAccountCreated(newProfile)
                         },

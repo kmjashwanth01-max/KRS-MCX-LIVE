@@ -318,7 +318,7 @@ object JashxKnowledgeDatabase {
                 📱 About KRS Gold & Silver Live MCX App:
                 This app streams 1-second real-time Physical Gold 999 (10g), Silver 1kg, MCX Futures (GOLDMCX, SILVERMCX), and International Spot Rates (GOLD($), SILVER($), INR(₹)) directly from KRS Bullion 1s Live Stream.
                 • JASHX AI Tab: Speaks to you like a human, answers any app or general question accurately, and tracks your live location weather & market targets.
-                • Charts & Tools Tabs: Includes RSI/MACD technical charts, 24K/22K/18K Jewelry Calculator, Home Screen Widget, and Biometric/4-Digit PIN App Lock.
+                • Charts & Tools Tabs: Includes RSI/MACD technical charts, 24K/22K/18K Jewelry Calculator, Home Screen Widget, and Custom Themes.
                 • Founder: K.M. Jashwanth is the Founder of JASHX AI.
             """.trimIndent()
         }
@@ -327,8 +327,8 @@ object JashxKnowledgeDatabase {
             return "🔔 **Setting Price Alerts**: Tap the **Bell Icon** at the top right of the screen, choose Gold or Silver, and enter your target Buy or Sell price. You will receive an instant notification when the live rate hits your target."
         }
 
-        if (normalized.contains("app lock") || normalized.contains("change pin") || normalized.contains("biometric unlock")) {
-            return "🔒 **Security & App Lock**: Tap the **Settings (Gear Icon)** at the top right or open the **Tools** tab to manage your Username, 4-Digit PIN, Dark/Light Theme, and Fingerprint/Face Unlock."
+        if (normalized.contains("settings") || normalized.contains("account") || normalized.contains("profile")) {
+            return "⚙️ **Settings & Account**: Tap the **Settings (Gear Icon)** at the top right or open the **Tools** tab to manage your Username, Dark/Light Theme, and account details."
         }
 
         // 7. Tamil Nadu Politics & Chief Minister (2026 Feed: Joseph Vijay)

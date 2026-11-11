@@ -26,13 +26,12 @@ service cloud.firestore {
 
     // Admin Identity Check: Verified Admin Email (kmjashwanth01@gmail.com / krsmcxofficial@gmail.com) or /admins/{uid} document
     function isAdmin() {
-      return isSignedIn() && (
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-        ('email_verified' in request.auth.token &&
+      return request.auth != null && (
+        ('email' in request.auth.token &&
           request.auth.token.email_verified == true &&
-          'email' in request.auth.token &&
           (request.auth.token.email == 'kmjashwanth01@gmail.com' ||
-           request.auth.token.email == 'krsmcxofficial@gmail.com'))
+           request.auth.token.email == 'krsmcxofficial@gmail.com')) ||
+        (request.auth.uid != null && exists(/databases/$(database)/documents/admins/$(request.auth.uid)))
       );
     }
 
@@ -83,7 +82,7 @@ service cloud.firestore {
              data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
              data.eventType is string && data.eventType.size() >= 1 && data.eventType.size() <= 80 &&
              data.savedTheme is string && data.savedTheme.size() >= 1 && data.savedTheme.size() <= 40 &&
-             data.totalAccountsCount is int && data.totalAccountsCount >= 1 && data.totalAccountsCount <= 10000000 &&
+             (data.totalAccountsCount is int || data.totalAccountsCount is number) && data.totalAccountsCount >= 1 && data.totalAccountsCount <= 10000000 &&
              data.createdAt is timestamp;
     }
 
@@ -93,7 +92,7 @@ service cloud.firestore {
              data.subject is string && data.subject.size() >= 1 && data.subject.size() <= 250 &&
              data.body is string && data.body.size() >= 1 && data.body.size() <= 10000 &&
              data.eventType is string && data.eventType.size() >= 1 && data.eventType.size() <= 80 &&
-             data.totalAccountsCount is int && data.totalAccountsCount >= 1 && data.totalAccountsCount <= 10000000 &&
+             (data.totalAccountsCount is int || data.totalAccountsCount is number) && data.totalAccountsCount >= 1 && data.totalAccountsCount <= 10000000 &&
              data.createdAt is timestamp;
     }
 

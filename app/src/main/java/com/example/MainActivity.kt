@@ -139,10 +139,6 @@ class MainActivity : androidx.appcompat.app.AppCompatActivity() {
         try {
             com.example.widget.BullionAppWidgetProvider.startOneSecondWidgetTicker(this)
             com.example.util.AppDiagnosticsManager.checkAndTriggerAutomaticDailySummary(this)
-            val user = com.example.util.UserAccountManager.currentUser.value
-            if (user != null && user.isAppLockEnabled) {
-                com.example.util.UserAccountManager.lockApp()
-            }
         } catch (t: Throwable) {
             android.util.Log.e("MainActivity", "onResume failed", t)
         }
@@ -771,13 +767,13 @@ fun MainAppScreen(
                                     Spacer(modifier = Modifier.width(10.dp))
                                     Column {
                                         Text(
-                                            text = "Settings, Accounts & App Lock",
+                                            text = "Settings & Accounts",
                                             style = MaterialTheme.typography.titleSmall,
                                             fontWeight = FontWeight.Bold,
                                             color = if (isDarkMode) Color.White else Color(0xFF0F172A)
                                         )
                                         Text(
-                                            text = "Account: ${currentUser?.name ?: "K.M. Jashwanth"} • 4-Digit PIN Lock: ${if (currentUser?.isAppLockEnabled == true) "Active" else "Off"}",
+                                            text = "Account: ${currentUser?.name ?: "K.M. Jashwanth"} • @${currentUser?.username ?: "jashwanth"} • ${currentUser?.city ?: "Coimbatore"}",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = if (isDarkMode) GoldLight else Color(0xFFB45309),
                                             fontSize = 11.sp
@@ -918,7 +914,7 @@ fun MainAppScreen(
                             TopAppBar(
                                 title = {
                                     Text(
-                                        text = "Settings & App Lock",
+                                        text = "Settings & Accounts",
                                         fontWeight = FontWeight.Bold,
                                         color = GoldPrimary,
                                         fontSize = 17.sp
@@ -937,27 +933,8 @@ fun MainAppScreen(
                         SettingsView(
                             isDarkMode = isDarkMode,
                             onToggleTheme = { viewModel.toggleTheme() },
-                            onLockAppNow = {
+                            onSignOut = {
                                 showSettingsModal = false
-                                com.example.util.UserAccountManager.lockApp()
-                            },
-                            onTestBiometric = {
-                                if (activity != null) {
-                                    BiometricAuthManager.authenticate(
-                                        activity = activity,
-                                        title = "KRS Bullion Security",
-                                        subtitle = "Testing fingerprint & face recognition sensor",
-                                        negativeButtonText = "Cancel",
-                                        onSuccess = {
-                                            Toast.makeText(context, "Biometric verified successfully!", Toast.LENGTH_SHORT).show()
-                                        },
-                                        onError = { err ->
-                                            Toast.makeText(context, err, Toast.LENGTH_SHORT).show()
-                                        }
-                                    )
-                                } else {
-                                    Toast.makeText(context, "Biometric hardware unavailable", Toast.LENGTH_SHORT).show()
-                                }
                             },
                             modifier = Modifier
                                 .padding(innerPad)
@@ -965,47 +942,6 @@ fun MainAppScreen(
                         )
                     }
                 }
-            }
-
-
-            // Create Account Modal from Lock Screen
-            if (showCreateAccountFromLock) {
-                CreateAccountDialog(
-                    onDismiss = { showCreateAccountFromLock = false },
-                    onAccountCreated = { _ ->
-                        showCreateAccountFromLock = false
-                        com.example.util.UserAccountManager.unlockApp()
-                    }
-                )
-            }
-
-            // Full-screen App Lock Overlay (4-Digit PIN or Biometrics)
-            if (isAppLocked) {
-                AppLockScreen(
-                    user = currentUser,
-                    onUnlockSuccess = {
-                        // App unlocked
-                    },
-                    onSwitchAccountClicked = {
-                        showCreateAccountFromLock = true
-                    },
-                    onBiometricClicked = {
-                        if (activity != null) {
-                            BiometricAuthManager.authenticate(
-                                activity = activity,
-                                title = "KRS Bullion Vault",
-                                subtitle = "Scan fingerprint or face to unlock app",
-                                negativeButtonText = "Use 4-Digit PIN",
-                                onSuccess = {
-                                    com.example.util.UserAccountManager.unlockApp()
-                                },
-                                onError = { err ->
-                                    Toast.makeText(context, err, Toast.LENGTH_SHORT).show()
-                                }
-                            )
-                        }
-                    }
-                )
             }
         }
     }

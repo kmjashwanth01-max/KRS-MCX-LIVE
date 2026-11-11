@@ -44,16 +44,41 @@ jobs:
           name: KRS-Gold-Silver-Live-MCX-APK
           path: KRS-Gold-Silver-Live-MCX.apk
 
-      - name: Publish APK to GitHub Releases
+      - name: Publish APK to GitHub Releases (APK Only)
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.0.${{ github.run_number }}
           name: "KRS Gold & Silver Live MCX v1.0.${{ github.run_number }} (.apk)"
+          make_latest: true
+          draft: false
+          prerelease: false
           body: |
             ### 📲 Direct Android APK Download
-            Click **`KRS-Gold-Silver-Live-MCX.apk`** below under **Assets** to download and install the app directly on your Android phone!
-            - Built by **K.M. Jashwanth** (`kmjashwanth01@gmail.com`)
-            - Powered by **JASHX AI (Gemini 3.8 Flash)** & **KRS Bullion 1s Live Feed**
+            Download **`KRS-Gold-Silver-Live-MCX.apk`** below to install directly on your Android device!
+            - Real-time 1-second MCX rates & Physical Gold/Silver bullion.
+            - Built by **K.M. Jashwanth** (`kmjashwanth01@gmail.com`).
+            - Powered by **JASHX AI (Gemini 3.8 Flash)** & **KRS Bullion 1s Live Feed**.
           files: KRS-Gold-Silver-Live-MCX.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish APK to Dedicated release-apk Branch (APK Only)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          mkdir -p /tmp/apk_release
+          cp KRS-Gold-Silver-Live-MCX.apk /tmp/apk_release/
+          cat << 'EOF' > /tmp/apk_release/README.md
+          # 📲 KRS Gold & Silver Live MCX - Android APK Release
+
+          Download the official Android APK directly:
+          - **File:** [KRS-Gold-Silver-Live-MCX.apk](./KRS-Gold-Silver-Live-MCX.apk)
+          - **Features:** 1-Second Live MCX bullion feeds, physical Gold 999 & Silver 1kg, Spot matrix, JASHX AI, Home Screen Widget.
+          - **Founder:** K.M. Jashwanth (`kmjashwanth01@gmail.com`)
+          EOF
+          git checkout --orphan release-apk || git checkout release-apk
+          git rm -rf . 2>/dev/null || true
+          cp -r /tmp/apk_release/* .
+          git add KRS-Gold-Silver-Live-MCX.apk README.md
+          git commit -m "Publish KRS-Gold-Silver-Live-MCX.apk [skip ci]" || true
+          git push origin release-apk --force || true

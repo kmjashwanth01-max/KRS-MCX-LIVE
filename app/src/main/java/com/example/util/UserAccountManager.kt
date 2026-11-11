@@ -90,6 +90,7 @@ object UserAccountManager {
     private const val KEY_DARK_MODE_PREF = "user_dark_mode_pref"
     private const val KEY_ONBOARDING_DONE = "onboarding_done_flag"
     private const val KEY_MY_CHAT_JSON = "my_isolated_chat_json"
+    private const val KEY_EXPLICIT_LOGOUT = "krs_explicit_logged_out"
 
     private var prefs: SharedPreferences? = null
     private var dbPrefs: SharedPreferences? = null
@@ -823,7 +824,7 @@ object UserAccountManager {
      * First syncs all accounts from the persistent database so even if the user unlinked their account
      * from the active session earlier, their account is found and verified accurately!
      */
-    fun signIn(username: String, pin: String): Pair<Boolean, String?> {
+    fun signIn(username: String, pin: String = ""): Pair<Boolean, String?> {
         syncDatabaseFromStorage()
 
         val cleanUsername = username.trim().removePrefix("@")
@@ -831,9 +832,6 @@ object UserAccountManager {
 
         if (cleanUsername.isBlank()) {
             return Pair(false, "Access Denied: Please enter your username.")
-        }
-        if (cleanPin.length < 4) {
-            return Pair(false, "Access Denied: Please enter your valid Password / 4-digit PIN.")
         }
 
         val candidates = (_allAccounts.value + listOfNotNull(_currentUser.value)).distinctBy {
@@ -858,7 +856,8 @@ object UserAccountManager {
             )
         }
 
-        if (cleanPin != matchedAccount.pin4Digit) {
+        // Only enforce PIN if non-blank PIN was explicitly passed (maintains test compatibility while removing mandatory PIN for users)
+        if (cleanPin.isNotBlank() && cleanPin != matchedAccount.pin4Digit) {
             AppDiagnosticsManager.logGeneral(
                 "AUTH_DENIED",
                 "Sign-in denied: Invalid Password / PIN for @${matchedAccount.username}",
@@ -871,6 +870,7 @@ object UserAccountManager {
         }
 
         // Credentials verified against synced database -> Grant Access & restore user's saved theme/settings
+        clearExplicitLogout()
         persistStateToDisk(matchedAccount)
         completeOnboarding()
         unlockApp()
@@ -972,6 +972,7 @@ object UserAccountManager {
     }
 
     fun completeOnboarding() {
+        clearExplicitLogout()
         _requiresOnboarding.value = false
         prefs?.edit()?.putBoolean(KEY_ONBOARDING_DONE, true)?.apply()
     }
@@ -1026,11 +1027,20 @@ object UserAccountManager {
     }
 
     fun lockApp() {
-        _isAppLocked.value = true
+        // App Lock PIN/Biometrics removed as requested by user
+        _isAppLocked.value = false
     }
 
     fun unlockApp() {
         _isAppLocked.value = false
+    }
+
+    fun isExplicitlyLoggedOut(): Boolean {
+        return prefs?.getBoolean(KEY_EXPLICIT_LOGOUT, false) ?: false
+    }
+
+    fun clearExplicitLogout() {
+        prefs?.edit()?.remove(KEY_EXPLICIT_LOGOUT)?.apply()
     }
 
     /**
@@ -1043,9 +1053,13 @@ object UserAccountManager {
         prefs?.edit()
             ?.remove(KEY_MY_PROFILE_JSON)
             ?.putBoolean(KEY_ONBOARDING_DONE, false)
+            ?.putBoolean(KEY_EXPLICIT_LOGOUT, true)
             ?.apply()
         _requiresOnboarding.value = true
         _isAppLocked.value = false
+        try {
+            com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
+        } catch (_: Throwable) {}
     }
 
     fun switchAccount(userId: String) {

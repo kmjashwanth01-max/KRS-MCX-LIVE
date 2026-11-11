@@ -95,20 +95,22 @@ fun AccountAuthScreen(
 
     LaunchedEffect(Unit) {
         UserAccountManager.syncAllAccountsToCloudNow()
-        com.example.util.GoogleAuthManager.attemptAutoSignIn(
-            context = context,
-            credentialManager = credentialManager,
-            onAuthSuccess = { firebaseUser ->
-                UserAccountManager.onGoogleSignIn(
-                    uid = firebaseUser.uid,
-                    email = firebaseUser.email,
-                    displayName = firebaseUser.displayName
-                )
-                onAuthSuccess()
-            },
-            onUnauthenticated = {},
-            scope = coroutineScope
-        )
+        if (!UserAccountManager.isExplicitlyLoggedOut()) {
+            com.example.util.GoogleAuthManager.attemptAutoSignIn(
+                context = context,
+                credentialManager = credentialManager,
+                onAuthSuccess = { firebaseUser ->
+                    UserAccountManager.onGoogleSignIn(
+                        uid = firebaseUser.uid,
+                        email = firebaseUser.email,
+                        displayName = firebaseUser.displayName
+                    )
+                    onAuthSuccess()
+                },
+                onUnauthenticated = {},
+                scope = coroutineScope
+            )
+        }
     }
 
     // POPUP 1: "ACCOUNT ALREADY EXISTS - SIGN IN" DIALOG
@@ -484,67 +486,7 @@ fun AccountAuthScreen(
                         modifier = Modifier.fillMaxWidth().testTag("auth_input_name")
                     )
 
-                    // 3. Password / 4-Digit PIN & Confirm Fields
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedTextField(
-                            value = regPin,
-                            onValueChange = {
-                                if (it.length <= 32) {
-                                    regPin = it
-                                    regValidationError = null
-                                }
-                            },
-                            label = { Text("Password / PIN *") },
-                            placeholder = { Text("1234") },
-                            visualTransformation = if (regShowPin) VisualTransformation.None else PasswordVisualTransformation(),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                            trailingIcon = {
-                                IconButton(onClick = { regShowPin = !regShowPin }) {
-                                    Icon(
-                                        imageVector = if (regShowPin) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                                        contentDescription = "Toggle password visibility",
-                                        tint = Color.Gray,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            },
-                            singleLine = true,
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = GoldPrimary,
-                                unfocusedBorderColor = TitaniumBorder,
-                                focusedTextColor = Color.White,
-                                unfocusedTextColor = Color.White
-                            ),
-                            modifier = Modifier.weight(1f).testTag("auth_input_pin")
-                        )
-
-                        OutlinedTextField(
-                            value = regConfirmPin,
-                            onValueChange = {
-                                if (it.length <= 32) {
-                                    regConfirmPin = it
-                                    regValidationError = null
-                                }
-                            },
-                            label = { Text("Confirm *") },
-                            placeholder = { Text("1234") },
-                            visualTransformation = if (regShowPin) VisualTransformation.None else PasswordVisualTransformation(),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                            singleLine = true,
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = GoldPrimary,
-                                unfocusedBorderColor = TitaniumBorder,
-                                focusedTextColor = Color.White,
-                                unfocusedTextColor = Color.White
-                            ),
-                            modifier = Modifier.weight(1f).testTag("auth_input_confirm_pin")
-                        )
-                    }
-
-                    // 4. Mobile Number
+                    // 3. Mobile Number
                     OutlinedTextField(
                         value = regPhone,
                         onValueChange = { regPhone = it; regValidationError = null },
@@ -561,6 +503,7 @@ fun AccountAuthScreen(
                         ),
                         modifier = Modifier.fillMaxWidth().testTag("auth_input_phone")
                     )
+
 
                     // 5. Email Address
                     OutlinedTextField(
@@ -639,50 +582,6 @@ fun AccountAuthScreen(
                         }
                     }
 
-                    // 8. Biometric Lock Switch
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = TitaniumDarkSurface,
-                        border = androidx.compose.foundation.BorderStroke(1.dp, TitaniumBorder),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Fingerprint,
-                                    contentDescription = "Biometrics",
-                                    tint = if (regEnableBiometric) MarketGreen else Color.Gray,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Column {
-                                    Text(
-                                        text = "Enable Fingerprint & Face Lock",
-                                        color = Color.White,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Text(
-                                        text = if (isBiometricReady) "Sensor hardware ready on device" else "4-Digit PIN backup will be active",
-                                        color = if (isBiometricReady) MarketGreen else Color.Gray,
-                                        fontSize = 10.sp
-                                    )
-                                }
-                            }
-                            Switch(
-                                checked = regEnableBiometric,
-                                onCheckedChange = { regEnableBiometric = it }
-                            )
-                        }
-                    }
-
                     // Validation Error Text
                     if (regValidationError != null) {
                         Surface(
@@ -709,7 +608,6 @@ fun AccountAuthScreen(
                             val cleanUser = regUsername.trim().removePrefix("@")
                             val cleanName = regName.trim()
                             val cleanPhone = regPhone.trim()
-                            val cleanPin = regPin.trim()
 
                             if (cleanUser.isBlank()) {
                                 regValidationError = "Please enter a username for your account."
@@ -721,14 +619,6 @@ fun AccountAuthScreen(
                             }
                             if (cleanPhone.isBlank()) {
                                 regValidationError = "Please enter your mobile number."
-                                return@Button
-                            }
-                            if (cleanPin.length < 4) {
-                                regValidationError = "Password / PIN must be at least 4 characters."
-                                return@Button
-                            }
-                            if (cleanPin != regConfirmPin.trim()) {
-                                regValidationError = "Password / PIN confirmation does not match."
                                 return@Button
                             }
 
@@ -756,9 +646,9 @@ fun AccountAuthScreen(
                                     phone = cleanPhone,
                                     city = regCity,
                                     role = regSelectedRole,
-                                    pin4Digit = cleanPin,
-                                    enableLockImmediately = true,
-                                    enableBiometric = regEnableBiometric
+                                    pin4Digit = "1234",
+                                    enableLockImmediately = false,
+                                    enableBiometric = false
                                 )
                                 UserAccountManager.completeOnboarding()
                                 UserAccountManager.unlockApp()
@@ -843,7 +733,7 @@ fun AccountAuthScreen(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "Enter your Username and Password / 4-Digit PIN to verify with the app database",
+                        text = "Enter your Username to sign in to the bullion terminal",
                         color = Color.LightGray,
                         fontSize = 12.sp,
                         textAlign = TextAlign.Center
@@ -929,44 +819,6 @@ fun AccountAuthScreen(
                             .testTag("sign_in_username_input")
                     )
 
-                    // 2. Sign In Password / 4-Digit PIN Field
-                    OutlinedTextField(
-                        value = signInPin,
-                        onValueChange = {
-                            if (it.length <= 32) {
-                                signInPin = it
-                                signInError = null
-                            }
-                        },
-                        label = { Text("Password / 4-Digit PIN *") },
-                        placeholder = { Text("••••") },
-                        visualTransformation = if (signInShowPin) VisualTransformation.None else PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                        leadingIcon = {
-                            Icon(Icons.Default.Lock, contentDescription = null, tint = GoldPrimary)
-                        },
-                        trailingIcon = {
-                            IconButton(onClick = { signInShowPin = !signInShowPin }) {
-                                Icon(
-                                    imageVector = if (signInShowPin) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                                    contentDescription = "Toggle password visibility",
-                                    tint = Color.Gray,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                        },
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = GoldPrimary,
-                            unfocusedBorderColor = TitaniumBorder,
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("sign_in_pin_input")
-                    )
-
                     // Error Message Banner
                     if (signInError != null) {
                         Surface(
@@ -985,18 +837,13 @@ fun AccountAuthScreen(
                         }
                     }
 
-                    // Direct Submit Button: Verify Username & Password/PIN with App Database
+                    // Direct Submit Button: Verify Username with App Database
                     Button(
                         onClick = {
                             val cleanUser = signInUsername.trim()
-                            val cleanPass = signInPin.trim()
 
                             if (cleanUser.isBlank()) {
-                                signInError = "Access Denied: Please enter your username."
-                                return@Button
-                            }
-                            if (cleanPass.length < 4) {
-                                signInError = "Access Denied: Please enter your Password / 4-digit PIN."
+                                signInError = "Please enter your username."
                                 return@Button
                             }
 
@@ -1004,16 +851,16 @@ fun AccountAuthScreen(
                                 // Sync account from Cloud Firestore first if present
                                 UserAccountManager.fetchAndSyncAccountFromCloudIfPresent(cleanUser)
 
-                                val (success, err) = UserAccountManager.signIn(cleanUser, cleanPass)
+                                val (success, err) = UserAccountManager.signIn(cleanUser)
                                 if (success) {
                                     Toast.makeText(
                                         context,
-                                        "Access Granted! Welcome back, @${UserAccountManager.currentUser.value?.username ?: cleanUser}!",
+                                        "Welcome back, @${UserAccountManager.currentUser.value?.username ?: cleanUser}!",
                                         Toast.LENGTH_SHORT
                                     ).show()
                                     onAuthSuccess()
                                 } else {
-                                    val message = err ?: "Access Denied: Invalid Username or Password / PIN."
+                                    val message = err ?: "Account '@$cleanUser' does not exist."
                                     signInError = message
                                     accessDeniedAccountMissing = message.contains("does not exist", ignoreCase = true)
                                     accessDeniedPopupMessage = message
@@ -1029,7 +876,7 @@ fun AccountAuthScreen(
                     ) {
                         Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Verify & Sign In to Market", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text("Sign In to Market", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     }
 
                     com.example.util.GoogleSignInButton(
@@ -1050,43 +897,6 @@ fun AccountAuthScreen(
                             signInError = err
                         }
                     )
-
-                    // Biometrics Instant Unlock Button (Fingerprint & Face)
-                    if (isBiometricReady && activity != null) {
-                        OutlinedButton(
-                            onClick = {
-                                BiometricAuthManager.authenticate(
-                                    activity = activity,
-                                    title = "KRS Bullion Security",
-                                    subtitle = "Scan fingerprint or face to sign in instantly",
-                                    negativeButtonText = "Use Username & PIN",
-                                    onSuccess = {
-                                        UserAccountManager.recordBiometricSignIn()
-                                        Toast.makeText(context, "Biometric verified successfully!", Toast.LENGTH_SHORT).show()
-                                        onAuthSuccess()
-                                    },
-                                    onError = { err ->
-                                        Toast.makeText(context, err, Toast.LENGTH_SHORT).show()
-                                    }
-                                )
-                            },
-                            shape = RoundedCornerShape(12.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, MarketGreen),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MarketGreen),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(46.dp)
-                                .testTag("sign_in_biometric_button")
-                        ) {
-                            Icon(Icons.Default.Fingerprint, contentDescription = "Biometrics", modifier = Modifier.size(20.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Sign In with Fingerprint / Face",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp
-                            )
-                        }
-                    }
 
                     // Switch to Create Account
                     Row(

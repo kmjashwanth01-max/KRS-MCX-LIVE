@@ -39,8 +39,9 @@ import com.example.util.UserProfile
 fun SettingsView(
     isDarkMode: Boolean,
     onToggleTheme: () -> Unit,
-    onLockAppNow: () -> Unit,
+    onLockAppNow: () -> Unit = {},
     onTestBiometric: (() -> Unit)? = null,
+    onSignOut: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -48,7 +49,6 @@ fun SettingsView(
     val allAccounts by UserAccountManager.allAccounts.collectAsState()
 
     var showCreateAccountDialog by remember { mutableStateOf(false) }
-    var showChangePinDialog by remember { mutableStateOf(false) }
     var accountToDelete by remember { mutableStateOf<UserProfile?>(null) }
     var showGitHubPublishDialog by remember { mutableStateOf(false) }
 
@@ -110,19 +110,6 @@ fun SettingsView(
                             )
                         }
                     }
-
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = if (currentUser?.isAppLockEnabled == true) MarketGreenGlow else Color(0xFF332010)
-                    ) {
-                        Text(
-                            text = if (currentUser?.isAppLockEnabled == true) "LOCK ON" else "LOCK OFF",
-                            color = if (currentUser?.isAppLockEnabled == true) MarketGreen else GoldLight,
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
-                        )
-                    }
                 }
 
                 Spacer(modifier = Modifier.height(14.dp))
@@ -144,7 +131,10 @@ fun SettingsView(
                     }
 
                     OutlinedButton(
-                        onClick = { UserAccountManager.signOut() },
+                        onClick = {
+                            UserAccountManager.signOut()
+                            onSignOut()
+                        },
                         shape = RoundedCornerShape(10.dp),
                         border = androidx.compose.foundation.BorderStroke(1.dp, GoldPrimary),
                         modifier = Modifier.weight(1f).height(38.dp).testTag("btn_sign_out_account")
@@ -177,191 +167,7 @@ fun SettingsView(
             }
         }
 
-        // 2. APP LOCK & 4-DIGIT PIN SECURITY SECTION
-        Card(
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = TitaniumDarkSurface),
-            border = androidx.compose.foundation.BorderStroke(1.dp, TitaniumBorder),
-            modifier = Modifier.fillMaxWidth().testTag("app_lock_settings_card")
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(34.dp)
-                                .clip(CircleShape)
-                                .background(GoldPrimary.copy(alpha = 0.2f))
-                                .border(1.dp, GoldPrimary, CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Lock,
-                                contentDescription = "App Lock",
-                                tint = GoldPrimary,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column {
-                            Text(
-                                text = "App Lock (4-Digit PIN)",
-                                color = TextWhitePrimary,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "Lock app using custom 4-digit numeric code",
-                                color = TextMutedSecondary,
-                                fontSize = 10.sp
-                            )
-                        }
-                    }
 
-                    Switch(
-                        checked = currentUser?.isAppLockEnabled == true,
-                        onCheckedChange = { enabled ->
-                            UserAccountManager.setAppLockEnabled(enabled)
-                            Toast.makeText(
-                                context,
-                                if (enabled) "App Lock enabled with 4-digit PIN" else "App Lock disabled",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        },
-                        colors = SwitchDefaults.colors(checkedThumbColor = GoldPrimary)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Text(
-                    text = "When active, entering your personal 4-digit PIN or scanning your biometric fingerprint/face unlocks the app.",
-                    color = Color.LightGray,
-                    fontSize = 11.sp,
-                    lineHeight = 16.sp
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    // Change PIN Button
-                    OutlinedButton(
-                        onClick = { showChangePinDialog = true },
-                        shape = RoundedCornerShape(10.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, GoldPrimary.copy(alpha = 0.6f)),
-                        modifier = Modifier.weight(1f).height(38.dp).testTag("btn_change_pin")
-                    ) {
-                        Icon(Icons.Default.Pin, contentDescription = null, tint = GoldLight, modifier = Modifier.size(15.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Change 4-Digit PIN", color = GoldLight, fontSize = 11.sp)
-                    }
-
-                    // Lock App Now Button
-                    Button(
-                        onClick = onLockAppNow,
-                        shape = RoundedCornerShape(10.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2A1C14), contentColor = GoldPrimary),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, GoldPrimary),
-                        modifier = Modifier.weight(1f).height(38.dp).testTag("btn_lock_app_now")
-                    ) {
-                        Icon(Icons.Default.LockClock, contentDescription = null, tint = GoldPrimary, modifier = Modifier.size(15.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Lock App Now", color = GoldPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-        }
-
-        // 3. BIOMETRIC AUTHENTICATION (FINGERPRINT / FACE UNLOCK) CARD
-        Card(
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = TitaniumDarkSurface),
-            border = androidx.compose.foundation.BorderStroke(1.dp, GoldPrimary.copy(alpha = 0.45f)),
-            modifier = Modifier.fillMaxWidth().testTag("biometric_settings_card")
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(34.dp)
-                                .clip(CircleShape)
-                                .background(GoldPrimary.copy(alpha = 0.2f))
-                                .border(1.dp, GoldPrimary, CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Fingerprint,
-                                contentDescription = "Biometric",
-                                tint = GoldPrimary,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column {
-                            Text(
-                                text = "Biometric Authentication",
-                                color = TextWhitePrimary,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "Fingerprint / Face Unlock alternative",
-                                color = GoldLight,
-                                fontSize = 10.sp
-                            )
-                        }
-                    }
-
-                    Switch(
-                        checked = currentUser?.isBiometricEnabled == true,
-                        onCheckedChange = { enabled ->
-                            UserAccountManager.setBiometricEnabled(enabled)
-                            Toast.makeText(
-                                context,
-                                if (enabled) "Biometric unlock enabled" else "Biometric unlock disabled",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        },
-                        colors = SwitchDefaults.colors(checkedThumbColor = GoldPrimary),
-                        modifier = Modifier.testTag("toggle_biometric_switch")
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Text(
-                    text = "Hardware Status: ${BiometricAuthManager.canAuthenticateStatus(context)}",
-                    color = Color.LightGray,
-                    fontSize = 10.5.sp
-                )
-
-                if (onTestBiometric != null) {
-                    Spacer(modifier = Modifier.height(10.dp))
-                    OutlinedButton(
-                        onClick = onTestBiometric,
-                        shape = RoundedCornerShape(10.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, GoldPrimary),
-                        modifier = Modifier.fillMaxWidth().height(36.dp).testTag("btn_test_biometric")
-                    ) {
-                        Icon(Icons.Default.Fingerprint, contentDescription = null, tint = GoldPrimary, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Test Fingerprint / Face Prompt", color = GoldPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-        }
 
         // 4. PERSONAL ACCOUNT DATA ISOLATION & SECURITY (WhatsApp-Style Architecture)
         Card(
@@ -638,7 +444,7 @@ fun SettingsView(
             },
             text = {
                 Text(
-                    text = "Unlink '@${deletingUser.username}' (${deletingUser.name}) from the active session on this device?\n\nYour account, Password / PIN, and saved theme remain safely synced in the database so you can sign back in anytime on the Sign In page.",
+                    text = "Unlink '@${deletingUser.username}' (${deletingUser.name}) from the active session on this device?\n\nYour account details and saved theme remain safely synced in the database so you can sign back in anytime on the Sign In page.",
                     color = Color.White,
                     fontSize = 12.5.sp,
                     lineHeight = 18.sp
@@ -650,10 +456,11 @@ fun SettingsView(
                         UserAccountManager.deleteAccount(deletingUser.id)
                         Toast.makeText(
                             context,
-                            "Account '@${deletingUser.username}' unlinked from session. Sign in anytime with your Username & PIN.",
+                            "Account '@${deletingUser.username}' unlinked from session. Sign in anytime with your Username.",
                             Toast.LENGTH_LONG
                         ).show()
                         accountToDelete = null
+                        onSignOut()
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = GoldPrimary, contentColor = Color.Black)
                 ) {
@@ -675,18 +482,7 @@ fun SettingsView(
             onDismiss = { showCreateAccountDialog = false },
             onAccountCreated = { newProfile ->
                 showCreateAccountDialog = false
-                Toast.makeText(context, "Welcome, ${newProfile.name}! Account registered with custom 4-digit PIN.", Toast.LENGTH_LONG).show()
-            }
-        )
-    }
-
-    // CHANGE PIN DIALOG
-    if (showChangePinDialog) {
-        ChangePinDialog(
-            onDismiss = { showChangePinDialog = false },
-            onPinChanged = {
-                showChangePinDialog = false
-                Toast.makeText(context, "4-digit PIN updated successfully!", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Welcome, ${newProfile.name}! Account registered.", Toast.LENGTH_LONG).show()
             }
         )
     }
@@ -802,112 +598,5 @@ fun SettingsView(
     }
 }
 
-@Composable
-private fun ChangePinDialog(
-    onDismiss: () -> Unit,
-    onPinChanged: () -> Unit
-) {
-    var oldPin by remember { mutableStateOf("") }
-    var newPin by remember { mutableStateOf("") }
-    var confirmNewPin by remember { mutableStateOf("") }
-    var error by remember { mutableStateOf<String?>(null) }
 
-    Dialog(onDismissRequest = onDismiss) {
-        Surface(
-            shape = RoundedCornerShape(16.dp),
-            color = TitaniumDarkSurface,
-            border = androidx.compose.foundation.BorderStroke(1.dp, GoldPrimary),
-            modifier = Modifier.fillMaxWidth(0.9f).padding(16.dp)
-        ) {
-            Column(modifier = Modifier.padding(18.dp)) {
-                Text(
-                    text = "Change 4-Digit Security PIN",
-                    color = TextWhitePrimary,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "Enter current PIN, then choose a new 4-digit code.",
-                    color = Color.Gray,
-                    fontSize = 11.sp
-                )
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                OutlinedTextField(
-                    value = oldPin,
-                    onValueChange = { if (it.length <= 4) oldPin = it },
-                    label = { Text("Current PIN", fontSize = 11.sp) },
-                    visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                OutlinedTextField(
-                    value = newPin,
-                    onValueChange = { if (it.length <= 4) newPin = it },
-                    label = { Text("New 4-Digit PIN", fontSize = 11.sp) },
-                    visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                OutlinedTextField(
-                    value = confirmNewPin,
-                    onValueChange = { if (it.length <= 4) confirmNewPin = it },
-                    label = { Text("Confirm New PIN", fontSize = 11.sp) },
-                    visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
-
-                if (error != null) {
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(text = error ?: "", color = Color(0xFFFF5252), fontSize = 11.sp)
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
-                        Text("Cancel", color = Color.Gray)
-                    }
-
-                    Button(
-                        onClick = {
-                            if (!UserAccountManager.verifyPin(oldPin)) {
-                                error = "Current PIN is incorrect"
-                                return@Button
-                            }
-                            if (newPin.length != 4 || !newPin.all { it.isDigit() }) {
-                                error = "New PIN must be exactly 4 digits"
-                                return@Button
-                            }
-                            if (newPin != confirmNewPin) {
-                                error = "New PINs do not match"
-                                return@Button
-                            }
-                            UserAccountManager.changePin(newPin)
-                            onPinChanged()
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = GoldPrimary, contentColor = Color.Black),
-                        modifier = Modifier.weight(1.2f)
-                    ) {
-                        Text("Save PIN", fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-        }
-    }
-}
 
