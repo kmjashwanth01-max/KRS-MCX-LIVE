@@ -1,0 +1,212 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Pillar 1: Global Default-Deny Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Core Primitives
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-\\.]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Admin Identity Check: Verified Admin Email (kmjashwanth01@gmail.com / krsmcxofficial@gmail.com) or /admins/{uid} document
+    function isAdmin() {
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        ('email_verified' in request.auth.token &&
+          request.auth.token.email_verified == true &&
+          'email' in request.auth.token &&
+          (request.auth.token.email == 'kmjashwanth01@gmail.com' ||
+           request.auth.token.email == 'krsmcxofficial@gmail.com'))
+      );
+    }
+
+    function isValidAdminBootstrap(data) {
+      return data.adminId is string && data.adminId == request.auth.uid &&
+             data.email is string && (data.email == 'kmjashwanth01@gmail.com' || data.email == 'krsmcxofficial@gmail.com') &&
+             data.createdAt is timestamp;
+    }
+
+    // Validation Helpers
+    function isValidUserAccount(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.fileName is string && data.fileName.size() >= 1 && data.fileName.size() <= 140 &&
+             data.userTextFile is string && data.userTextFile.size() >= 1 && data.userTextFile.size() <= 5000 &&
+             data.username is string && data.username.size() >= 1 && data.username.size() <= 60 &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+             data.email is string && data.email.size() <= 120 &&
+             data.phone is string && data.phone.size() <= 40 &&
+             data.city is string && data.city.size() >= 1 && data.city.size() <= 80 &&
+             data.role is string && data.role.size() >= 1 && data.role.size() <= 60 &&
+             data.pin4Digit is string && data.pin4Digit.size() >= 4 && data.pin4Digit.size() <= 32 &&
+             data.isDarkMode is bool &&
+             data.isAppLockEnabled is bool &&
+             data.isBiometricEnabled is bool &&
+             data.createdAt is timestamp &&
+             data.updatedAt is timestamp;
+    }
+
+    function isValidUserFile(data) {
+      return data.fileName is string && data.fileName.size() >= 1 && data.fileName.size() <= 140 &&
+             data.userInfoText is string && data.userInfoText.size() >= 1 && data.userInfoText.size() <= 2000 &&
+             data.fileContentText is string && data.fileContentText.size() >= 1 && data.fileContentText.size() <= 5000 &&
+             data.username is string && data.username.size() >= 1 && data.username.size() <= 60 &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+             data.pin4Digit is string && data.pin4Digit.size() >= 4 && data.pin4Digit.size() <= 32 &&
+             data.city is string && data.city.size() >= 1 && data.city.size() <= 80 &&
+             data.role is string && data.role.size() >= 1 && data.role.size() <= 60 &&
+             data.email is string && data.email.size() <= 120 &&
+             data.phone is string && data.phone.size() <= 40 &&
+             data.themeMode is string && data.themeMode.size() >= 1 && data.themeMode.size() <= 60 &&
+             data.createdAt is timestamp &&
+             data.updatedAt is timestamp;
+    }
+
+    function isValidLoginEvent(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.username is string && data.username.size() >= 1 && data.username.size() <= 60 &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+             data.eventType is string && data.eventType.size() >= 1 && data.eventType.size() <= 80 &&
+             data.savedTheme is string && data.savedTheme.size() >= 1 && data.savedTheme.size() <= 40 &&
+             data.totalAccountsCount is int && data.totalAccountsCount >= 1 && data.totalAccountsCount <= 10000000 &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidAdminMailLog(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.recipientEmail is string && data.recipientEmail == 'krsmcxofficial@gmail.com' &&
+             data.subject is string && data.subject.size() >= 1 && data.subject.size() <= 250 &&
+             data.body is string && data.body.size() >= 1 && data.body.size() <= 10000 &&
+             data.eventType is string && data.eventType.size() >= 1 && data.eventType.size() <= 80 &&
+             data.totalAccountsCount is int && data.totalAccountsCount >= 1 && data.totalAccountsCount <= 10000000 &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidAnnouncement(data) {
+      return data.authorId is string && data.authorId.size() >= 1 && data.authorId.size() <= 128 &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 160 &&
+             data.message is string && data.message.size() >= 1 && data.message.size() <= 2000 &&
+             data.priority is string && (data.priority == 'normal' || data.priority == 'high' || data.priority == 'urgent') &&
+             data.isActive is bool &&
+             data.createdAt is timestamp &&
+             data.updatedAt is timestamp;
+    }
+
+    // 0. Trusted Admins Registry Collection
+    match /admins/{adminId} {
+      allow get: if isSignedIn() && isValidId(adminId) && (request.auth.uid == adminId || isAdmin());
+      allow create: if isSignedIn() &&
+                       isValidId(adminId) &&
+                       request.auth.uid == adminId &&
+                       'email' in request.auth.token &&
+                       (request.auth.token.email == 'kmjashwanth01@gmail.com' ||
+                        request.auth.token.email == 'krsmcxofficial@gmail.com') &&
+                       incoming().keys().hasAll(['adminId', 'email', 'createdAt']) &&
+                       incoming().keys().hasOnly(['adminId', 'email', 'createdAt']) &&
+                       isValidAdminBootstrap(incoming());
+      allow list, update, delete: if false;
+    }
+
+    // 1. User Accounts Collection (/user_accounts/{accountId}):
+    // - Supports both Username & 4-Digit PIN accounts and Google Sign-In accounts.
+    // - Includes `fileName` (<username>.txt) and `userTextFile` (complete plain-text user record).
+    // - ONLY the Admin can list all created accounts.
+    match /user_accounts/{accountId} {
+      allow get: if isValidId(accountId);
+      allow list: if isAdmin();
+
+      allow create, update: if isValidId(accountId) &&
+                               incoming().keys().hasAll(['userId', 'fileName', 'userTextFile', 'username', 'name', 'email', 'phone', 'city', 'role', 'pin4Digit', 'isDarkMode', 'isAppLockEnabled', 'isBiometricEnabled', 'createdAt', 'updatedAt']) &&
+                               incoming().keys().hasOnly(['userId', 'fileName', 'userTextFile', 'username', 'name', 'email', 'phone', 'city', 'role', 'pin4Digit', 'isDarkMode', 'isAppLockEnabled', 'isBiometricEnabled', 'createdAt', 'updatedAt']) &&
+                               isValidUserAccount(incoming());
+
+      allow delete: if isAdmin() && isValidId(accountId);
+    }
+
+    // 1B. Individual User Text Files Collection (/user_files/{accountId}):
+    // - Stores each user in their own dedicated text file document (<username>.txt) containing
+    //   username, PIN, city, role, email, phone, and theme in plain text form (`userInfoText` & `fileContentText`).
+    // - App can get a specific user's file by username ID; ONLY the Admin can list all user files.
+    match /user_files/{accountId} {
+      allow get: if isValidId(accountId);
+      allow list: if isAdmin();
+
+      allow create, update: if isValidId(accountId) &&
+                               incoming().keys().hasAll(['fileName', 'userInfoText', 'fileContentText', 'username', 'name', 'pin4Digit', 'city', 'role', 'email', 'phone', 'themeMode', 'createdAt', 'updatedAt']) &&
+                               incoming().keys().hasOnly(['fileName', 'userInfoText', 'fileContentText', 'username', 'name', 'pin4Digit', 'city', 'role', 'email', 'phone', 'themeMode', 'createdAt', 'updatedAt']) &&
+                               isValidUserFile(incoming());
+
+      allow delete: if isAdmin() && isValidId(accountId);
+    }
+
+    // 2. Login & Account Creation Events Collection (/login_events/{eventId}):
+    // - Append-only for app clients recording account creation or sign-in events.
+    // - Strictly readable/listable ONLY by the Admin (never visible to regular app users).
+    match /login_events/{eventId} {
+      allow get: if isAdmin() && isValidId(eventId);
+      allow list: if isAdmin();
+
+      allow create: if isValidId(eventId) &&
+                       incoming().keys().hasAll(['userId', 'username', 'name', 'eventType', 'savedTheme', 'totalAccountsCount', 'createdAt']) &&
+                       incoming().keys().hasOnly(['userId', 'username', 'name', 'eventType', 'savedTheme', 'totalAccountsCount', 'createdAt']) &&
+                       isValidLoginEvent(incoming());
+
+      allow update: if false;
+      allow delete: if isAdmin() && isValidId(eventId);
+    }
+
+    // 3. Admin Mail Logs Collection (/admin_mail_logs/{mailId}):
+    // - Append-only for app clients recording immediate mail dispatch to krsmcxofficial@gmail.com.
+    // - Strictly readable/listable ONLY by the Admin (never visible to regular app users).
+    match /admin_mail_logs/{mailId} {
+      allow get: if isAdmin() && isValidId(mailId);
+      allow list: if isAdmin();
+
+      allow create: if isValidId(mailId) &&
+                       incoming().keys().hasAll(['userId', 'recipientEmail', 'subject', 'body', 'eventType', 'totalAccountsCount', 'createdAt']) &&
+                       incoming().keys().hasOnly(['userId', 'recipientEmail', 'subject', 'body', 'eventType', 'totalAccountsCount', 'createdAt']) &&
+                       isValidAdminMailLog(incoming());
+
+      allow update: if false;
+      allow delete: if isAdmin() && isValidId(mailId);
+    }
+
+    // 4. Official App Announcements Collection (/announcements/{announcementId}):
+    // - Active announcements (isActive == true) stream into the app in real time.
+    // - Allows initial bootstrap of welcome_krs_bullion so the collection is immediately initialized in Firebase Console,
+    //   while creating new announcements, updating, or deleting is restricted EXCLUSIVELY to the Admin.
+    match /announcements/{announcementId} {
+      allow get: if isValidId(announcementId) && (resource == null || existing().isActive == true || isAdmin());
+      allow list: if existing().isActive == true || isAdmin();
+
+      allow create: if (isAdmin() || (announcementId == 'welcome_krs_bullion' && !exists(/databases/$(database)/documents/announcements/welcome_krs_bullion))) &&
+                       isValidId(announcementId) &&
+                       incoming().keys().hasAll(['authorId', 'title', 'message', 'priority', 'isActive', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['authorId', 'title', 'message', 'priority', 'isActive', 'createdAt', 'updatedAt']) &&
+                       isValidAnnouncement(incoming());
+
+      allow update: if isAdmin() &&
+                       isValidId(announcementId) &&
+                       isValidAnnouncement(incoming()) &&
+                       incoming().authorId == existing().authorId &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['title', 'message', 'priority', 'isActive', 'updatedAt']);
+
+      allow delete: if isAdmin() && isValidId(announcementId);
+    }
+  }
+}

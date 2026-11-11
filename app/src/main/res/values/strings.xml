@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">KRS Gold &amp; Silver</string>
+    <string name="widget_name">KRS Gold &amp; Silver Live Rates</string>
+    <string name="widget_description">Live MCX Gold 999 and Silver 1kg rates directly on your Home Screen</string>
+</resources>

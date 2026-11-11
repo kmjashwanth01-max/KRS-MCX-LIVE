@@ -1,0 +1,6 @@
+{
+  "name": "KRS Gold & Silver",
+  "description": "Live 1-second MCX Gold 999 and Silver 1kg rates from live bullion broadcast with Android Home Screen Widget and JASHX AI Autonomous Intelligence.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

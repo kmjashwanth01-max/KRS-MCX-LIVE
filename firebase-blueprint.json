@@ -1,0 +1,115 @@
+{
+  "entities": {
+    "UserAccount": {
+      "title": "User Account & Text File Record",
+      "description": "Synced user account profile, Password/PIN credential, theme preference, and full plain-text user file stored in Firestore.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Account identifier or normalized username" },
+        "fileName": { "type": "string", "description": "Dedicated user text file name (<username>.txt)" },
+        "userTextFile": { "type": "string", "description": "Complete user account information formatted in plain text (username, PIN, city, role, email, phone, theme, etc.)" },
+        "username": { "type": "string", "description": "Unique account username" },
+        "name": { "type": "string", "description": "Full display name" },
+        "email": { "type": "string", "description": "Email address" },
+        "phone": { "type": "string", "description": "Mobile / WhatsApp number" },
+        "city": { "type": "string", "description": "Bullion trading city" },
+        "role": { "type": "string", "description": "Trading role" },
+        "pin4Digit": { "type": "string", "description": "Account Password or 4-Digit PIN" },
+        "isDarkMode": { "type": "boolean", "description": "Saved Dark/Light theme preference" },
+        "isAppLockEnabled": { "type": "boolean", "description": "Whether 4-digit PIN lock is active" },
+        "isBiometricEnabled": { "type": "boolean", "description": "Whether biometric unlock is active" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last modified timestamp" }
+      },
+      "required": ["userId", "fileName", "userTextFile", "username", "name", "email", "phone", "city", "role", "pin4Digit", "isDarkMode", "isAppLockEnabled", "isBiometricEnabled", "createdAt", "updatedAt"]
+    },
+    "UserFile": {
+      "title": "Individual User Text File",
+      "description": "Dedicated per-user text file document (<username>.txt) containing username, PIN, city, role, email, phone, and theme in plain text form.",
+      "type": "object",
+      "properties": {
+        "fileName": { "type": "string", "description": "User text file name (<username>.txt)" },
+        "userInfoText": { "type": "string", "description": "Single-line readable summary of all user information (username, PIN, city, role, email, phone, theme)" },
+        "fileContentText": { "type": "string", "description": "Full multi-line plain-text file content for this user" },
+        "username": { "type": "string", "description": "Account username" },
+        "name": { "type": "string", "description": "Full display name" },
+        "pin4Digit": { "type": "string", "description": "User Password / 4-Digit PIN" },
+        "city": { "type": "string", "description": "User city" },
+        "role": { "type": "string", "description": "Trading role" },
+        "email": { "type": "string", "description": "Email address" },
+        "phone": { "type": "string", "description": "Mobile phone" },
+        "themeMode": { "type": "string", "description": "Saved Dark/Light theme mode" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last modified timestamp" }
+      },
+      "required": ["fileName", "userInfoText", "fileContentText", "username", "name", "pin4Digit", "city", "role", "email", "phone", "themeMode", "createdAt", "updatedAt"]
+    },
+    "LoginEvent": {
+      "title": "Login & Account Creation Event",
+      "description": "Append-only audit record of every account creation and sign-in event. Viewable only by the Admin.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Account identifier" },
+        "username": { "type": "string", "description": "Account username" },
+        "name": { "type": "string", "description": "Full display name" },
+        "eventType": { "type": "string", "description": "NEW ACCOUNT CREATED or USER SIGN-IN ALERT" },
+        "savedTheme": { "type": "string", "description": "User's saved theme mode at login" },
+        "totalAccountsCount": { "type": "integer", "description": "Total number of accounts created" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Event timestamp" }
+      },
+      "required": ["userId", "username", "name", "eventType", "savedTheme", "totalAccountsCount", "createdAt"]
+    },
+    "AdminMailLog": {
+      "title": "Admin Mail Log",
+      "description": "Append-only record of immediate email reports dispatched to krsmcxofficial@gmail.com. Viewable only by the Admin.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Account identifier" },
+        "recipientEmail": { "type": "string", "description": "Target admin email (krsmcxofficial@gmail.com)" },
+        "subject": { "type": "string", "description": "Email subject" },
+        "body": { "type": "string", "description": "Formatted email report body" },
+        "eventType": { "type": "string", "description": "Triggering event type" },
+        "totalAccountsCount": { "type": "integer", "description": "Total accounts created count" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Dispatch timestamp" }
+      },
+      "required": ["userId", "recipientEmail", "subject", "body", "eventType", "totalAccountsCount", "createdAt"]
+    },
+    "Announcement": {
+      "title": "Official App Announcement",
+      "description": "Live announcement controlled by the Admin from the database and displayed in real time inside the app.",
+      "type": "object",
+      "properties": {
+        "authorId": { "type": "string", "description": "Admin UID" },
+        "title": { "type": "string", "description": "Announcement headline" },
+        "message": { "type": "string", "description": "Announcement message content" },
+        "priority": { "type": "string", "description": "Priority badge (normal, high, urgent)" },
+        "isActive": { "type": "boolean", "description": "Whether announcement is active in the app" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Published timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Updated timestamp" }
+      },
+      "required": ["authorId", "title", "message", "priority", "isActive", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/user_accounts/{accountId}": {
+      "schema": { "$ref": "#/entities/UserAccount" },
+      "description": "Stores synced user accounts and their plain-text file representation keyed by normalized username."
+    },
+    "/user_files/{accountId}": {
+      "schema": { "$ref": "#/entities/UserFile" },
+      "description": "Stores each user in their own dedicated text file document (<username>.txt) containing username, PIN, city, role, email, phone, and theme in plain text form."
+    },
+    "/login_events/{eventId}": {
+      "schema": { "$ref": "#/entities/LoginEvent" },
+      "description": "Append-only login & account creation audit log. Readable/listable ONLY by the Admin."
+    },
+    "/admin_mail_logs/{mailId}": {
+      "schema": { "$ref": "#/entities/AdminMailLog" },
+      "description": "Append-only mail report log addressed to krsmcxofficial@gmail.com. Readable/listable ONLY by the Admin."
+    },
+    "/announcements/{announcementId}": {
+      "schema": { "$ref": "#/entities/Announcement" },
+      "description": "Admin-controlled live announcements streamed into the app."
+    }
+  }
+}
