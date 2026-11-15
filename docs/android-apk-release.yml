@@ -33,12 +33,12 @@ jobs:
             base64 -d debug.keystore.base64 > debug.keystore
           fi
 
-      - name: Build Installable APK
-        run: gradle assembleDebug --no-daemon
+      - name: Build Signed Release APK
+        run: gradle assembleRelease --no-daemon
 
-      - name: Rename APK for Direct Download
+      - name: Prepare APK for Download
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk KRS-Gold-Silver-Live-MCX.apk
+          cp app/build/outputs/apk/release/app-release.apk KRS-Gold-Silver-Live-MCX.apk
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
@@ -56,7 +56,7 @@ jobs:
           prerelease: false
           body: |
             ### Direct Android APK Download
-            Download **`KRS-Gold-Silver-Live-MCX.apk`** below to install directly on your Android device.
+            Download **`KRS-Gold-Silver-Live-MCX.apk`** below to install directly on your Android phone.
           files: KRS-Gold-Silver-Live-MCX.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

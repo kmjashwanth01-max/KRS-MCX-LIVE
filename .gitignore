@@ -21,3 +21,4 @@ app/build/
 firestore-debug.log
 debug.keystore
 public/assets/
+user_accounts_files/
