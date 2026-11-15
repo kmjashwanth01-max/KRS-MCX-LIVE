@@ -1,0 +1,17 @@
+==================================================
+KRS GOLD & SILVER — USER ACCOUNT FILE (jashwanth.txt)
+==================================================
+FILE_NAME          : jashwanth.txt
+USER_ID            : jashwanth
+USERNAME           : jashwanth
+FULL_NAME          : K.M. Jashwanth
+PASSWORD_PIN       : 1234
+CITY               : Coimbatore
+ROLE               : Bullion Administrator
+EMAIL              : kmjashwanth01@gmail.com
+MOBILE_PHONE       : +91 98422 12345
+THEME_MODE         : Dark Titanium Mode
+IS_DARK_MODE       : true
+APP_LOCK_ENABLED   : false
+BIOMETRIC_ENABLED  : false
+==================================================
