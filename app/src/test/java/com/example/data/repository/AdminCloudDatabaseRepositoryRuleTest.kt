@@ -82,6 +82,33 @@ class AdminCloudDatabaseRepositoryRuleTest : FirestoreEmulatorTestBase() {
     }
 
     @Test
+    fun unauthenticatedUsernamePinClient_canRecordLoginEventsAndBootstrapWithoutPermissionDenied() = runBlocking {
+        auth.signOut()
+        val repository = AdminCloudDatabaseRepository(firestore, auth)
+
+        val bootstrapAnnResult = withTimeout(DEFAULT_TIMEOUT_MS) {
+            repository.bootstrapInitialAnnouncementIfNeeded()
+        }
+        assertTrue(bootstrapAnnResult.isSuccess)
+
+        val logResult = withTimeout(DEFAULT_TIMEOUT_MS) {
+            repository.recordLoginAndMailToAdminDatabase(
+                username = "jashwanth",
+                name = "K.M. Jashwanth",
+                eventType = "DATABASE INITIALIZED & USER TEXT FILES SYNCED",
+                savedTheme = "Dark Titanium Mode",
+                totalAccountsCount = 1,
+                subject = "[KRS Bullion] Sync Alert",
+                body = "Sync completed"
+            )
+        }
+        assertTrue(
+            "Expected login_events + admin_mail_logs create to succeed without PERMISSION_DENIED: ${logResult.exceptionOrNull()}",
+            logResult.isSuccess
+        )
+    }
+
+    @Test
     fun regularUser_cannotListLoginEventsOrMailLogsOrAllAccounts_failsWithPermissionDenied() = runBlocking {
         signInTestUser(BOB_EMAIL)
         val bobRepo = AdminCloudDatabaseRepository(firestore, auth)

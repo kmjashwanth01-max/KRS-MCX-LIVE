@@ -379,9 +379,9 @@ class AdminCloudDatabaseRepository(
         collection: String,
         documentId: String?,
         fieldsMap: Map<String, Any>
-    ) {
-        val dbId = resolveDatabaseId() ?: return
-        withContext(Dispatchers.IO) {
+    ): Boolean {
+        val dbId = resolveDatabaseId() ?: return false
+        return withContext(Dispatchers.IO) {
             try {
                 val baseUrl = "https://firestore.googleapis.com/v1/projects/$CLOUD_PROJECT_ID/databases/$dbId/documents/$collection"
                 val jsonBody = toFirestoreRestFieldsJson(fieldsMap)
@@ -395,9 +395,20 @@ class AdminCloudDatabaseRepository(
                     reqBuilder.url(baseUrl)
                         .post(jsonBody.toRequestBody(mediaType))
                 }
-                restHttpClient.newCall(reqBuilder.build()).execute().close()
-            } catch (_: Throwable) {}
+                restHttpClient.newCall(reqBuilder.build()).execute().use { resp ->
+                    resp.isSuccessful
+                }
+            } catch (_: Throwable) {
+                false
+            }
         }
+    }
+
+    private fun isPermissionDeniedError(t: Throwable): Boolean {
+        val firestoreEx = generateSequence(t) { it.cause }
+            .filterIsInstance<FirebaseFirestoreException>()
+            .firstOrNull()
+        return firestoreEx?.code == FirebaseFirestoreException.Code.PERMISSION_DENIED
     }
 
     private fun resolveAccountId(username: String): String {
@@ -470,48 +481,6 @@ class AdminCloudDatabaseRepository(
         val fileRef = db.collection("user_files").document(docId)
         val docRef = db.collection("user_accounts").document(docId)
 
-        // 0. Immediate parallel REST API write when running on Android device/emulator
-        syncViaFirestoreRestApi(
-            collection = "user_files",
-            documentId = docId,
-            fieldsMap = mapOf(
-                "fileName" to fileName,
-                "userInfoText" to singleLineInfo,
-                "fileContentText" to textFileContent,
-                "username" to cleanUsername,
-                "name" to cleanName,
-                "pin4Digit" to safePin,
-                "city" to cleanCity,
-                "role" to cleanRole,
-                "email" to cleanEmail,
-                "phone" to cleanPhone,
-                "themeMode" to themeLabel,
-                "createdAt" to "__SERVER_TIMESTAMP__",
-                "updatedAt" to "__SERVER_TIMESTAMP__"
-            )
-        )
-        syncViaFirestoreRestApi(
-            collection = "user_accounts",
-            documentId = docId,
-            fieldsMap = mapOf(
-                "userId" to docId,
-                "fileName" to fileName,
-                "userTextFile" to textFileContent,
-                "username" to cleanUsername,
-                "name" to cleanName,
-                "email" to cleanEmail,
-                "phone" to cleanPhone,
-                "city" to cleanCity,
-                "role" to cleanRole,
-                "pin4Digit" to safePin,
-                "isDarkMode" to isDarkMode,
-                "isAppLockEnabled" to isAppLockEnabled,
-                "isBiometricEnabled" to isBiometricEnabled,
-                "createdAt" to "__SERVER_TIMESTAMP__",
-                "updatedAt" to "__SERVER_TIMESTAMP__"
-            )
-        )
-
         // 1. Write dedicated per-user text file document in `/user_files/{docId}` via Firestore SDK
         try {
             val filePayload = mapOf(
@@ -533,8 +502,29 @@ class AdminCloudDatabaseRepository(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.WRITE, fileRef.path)
-            throw e
+            val restOk = !isPermissionDeniedError(e) && syncViaFirestoreRestApi(
+                collection = "user_files",
+                documentId = docId,
+                fieldsMap = mapOf(
+                    "fileName" to fileName,
+                    "userInfoText" to singleLineInfo,
+                    "fileContentText" to textFileContent,
+                    "username" to cleanUsername,
+                    "name" to cleanName,
+                    "pin4Digit" to safePin,
+                    "city" to cleanCity,
+                    "role" to cleanRole,
+                    "email" to cleanEmail,
+                    "phone" to cleanPhone,
+                    "themeMode" to themeLabel,
+                    "createdAt" to "__SERVER_TIMESTAMP__",
+                    "updatedAt" to "__SERVER_TIMESTAMP__"
+                )
+            )
+            if (!restOk) {
+                handleFirestoreError(e, OperationType.WRITE, fileRef.path)
+                throw e
+            }
         }
 
         // 2. Write user account document in `/user_accounts/{docId}` via Firestore SDK
@@ -560,8 +550,31 @@ class AdminCloudDatabaseRepository(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.WRITE, docRef.path)
-            throw e
+            val restOk = !isPermissionDeniedError(e) && syncViaFirestoreRestApi(
+                collection = "user_accounts",
+                documentId = docId,
+                fieldsMap = mapOf(
+                    "userId" to docId,
+                    "fileName" to fileName,
+                    "userTextFile" to textFileContent,
+                    "username" to cleanUsername,
+                    "name" to cleanName,
+                    "email" to cleanEmail,
+                    "phone" to cleanPhone,
+                    "city" to cleanCity,
+                    "role" to cleanRole,
+                    "pin4Digit" to safePin,
+                    "isDarkMode" to isDarkMode,
+                    "isAppLockEnabled" to isAppLockEnabled,
+                    "isBiometricEnabled" to isBiometricEnabled,
+                    "createdAt" to "__SERVER_TIMESTAMP__",
+                    "updatedAt" to "__SERVER_TIMESTAMP__"
+                )
+            )
+            if (!restOk) {
+                handleFirestoreError(e, OperationType.WRITE, docRef.path)
+                throw e
+            }
         }
     }
 
@@ -643,33 +656,6 @@ class AdminCloudDatabaseRepository(
         val cleanSubject = subject.ifBlank { "[KRS Bullion] Account Alert" }.take(250)
         val cleanBody = body.ifBlank { "Account Alert" }.take(10000)
 
-        syncViaFirestoreRestApi(
-            collection = "login_events",
-            documentId = loginRef.id,
-            fieldsMap = mapOf(
-                "userId" to uid.take(128),
-                "username" to cleanUser,
-                "name" to cleanName,
-                "eventType" to cleanEvent,
-                "savedTheme" to cleanTheme,
-                "totalAccountsCount" to safeCount,
-                "createdAt" to "__SERVER_TIMESTAMP__"
-            )
-        )
-        syncViaFirestoreRestApi(
-            collection = "admin_mail_logs",
-            documentId = mailRef.id,
-            fieldsMap = mapOf(
-                "userId" to uid.take(128),
-                "recipientEmail" to "krsmcxofficial@gmail.com",
-                "subject" to cleanSubject,
-                "body" to cleanBody,
-                "eventType" to cleanEvent,
-                "totalAccountsCount" to safeCount,
-                "createdAt" to "__SERVER_TIMESTAMP__"
-            )
-        )
-
         val loginPayload = mapOf(
             "userId" to uid.take(128),
             "username" to cleanUser,
@@ -695,8 +681,23 @@ class AdminCloudDatabaseRepository(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.CREATE, loginRef.path)
-            throw e
+            val restOk = !isPermissionDeniedError(e) && syncViaFirestoreRestApi(
+                collection = "login_events",
+                documentId = loginRef.id,
+                fieldsMap = mapOf(
+                    "userId" to uid.take(128),
+                    "username" to cleanUser,
+                    "name" to cleanName,
+                    "eventType" to cleanEvent,
+                    "savedTheme" to cleanTheme,
+                    "totalAccountsCount" to safeCount,
+                    "createdAt" to "__SERVER_TIMESTAMP__"
+                )
+            )
+            if (!restOk) {
+                handleFirestoreError(e, OperationType.CREATE, loginRef.path)
+                throw e
+            }
         }
 
         try {
@@ -704,8 +705,23 @@ class AdminCloudDatabaseRepository(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.CREATE, mailRef.path)
-            throw e
+            val restOk = !isPermissionDeniedError(e) && syncViaFirestoreRestApi(
+                collection = "admin_mail_logs",
+                documentId = mailRef.id,
+                fieldsMap = mapOf(
+                    "userId" to uid.take(128),
+                    "recipientEmail" to "krsmcxofficial@gmail.com",
+                    "subject" to cleanSubject,
+                    "body" to cleanBody,
+                    "eventType" to cleanEvent,
+                    "totalAccountsCount" to safeCount,
+                    "createdAt" to "__SERVER_TIMESTAMP__"
+                )
+            )
+            if (!restOk) {
+                handleFirestoreError(e, OperationType.CREATE, mailRef.path)
+                throw e
+            }
         }
 
         mailRef.id
@@ -717,21 +733,8 @@ class AdminCloudDatabaseRepository(
      */
     suspend fun bootstrapInitialAnnouncementIfNeeded(): Result<Unit> = runCatching {
         val docRef = db.collection("announcements").document("welcome_krs_bullion")
-        val snap = docRef.get().await()
-        if (!snap.exists()) {
-            syncViaFirestoreRestApi(
-                collection = "announcements",
-                documentId = "welcome_krs_bullion",
-                fieldsMap = mapOf(
-                    "authorId" to "admin_km_jashwanth",
-                    "title" to "KRS Gold & Silver Official Live Desk",
-                    "message" to "Live 1-second MCX Bullion broadcast active. Official announcements are controlled by K.M. Jashwanth.",
-                    "priority" to "high",
-                    "isActive" to true,
-                    "createdAt" to "__SERVER_TIMESTAMP__",
-                    "updatedAt" to "__SERVER_TIMESTAMP__"
-                )
-            )
+        val snap = runCatching { docRef.get().await() }.getOrNull()
+        if (snap == null || !snap.exists()) {
             val payload = mapOf(
                 "authorId" to "admin_km_jashwanth",
                 "title" to "KRS Gold & Silver Official Live Desk",
@@ -741,7 +744,25 @@ class AdminCloudDatabaseRepository(
                 "createdAt" to FieldValue.serverTimestamp(),
                 "updatedAt" to FieldValue.serverTimestamp()
             )
-            docRef.set(payload).await()
+            val sdkResult = runCatching { docRef.set(payload).await() }
+            if (sdkResult.isFailure) {
+                val err = sdkResult.exceptionOrNull()
+                if (err != null && !isPermissionDeniedError(err)) {
+                    syncViaFirestoreRestApi(
+                        collection = "announcements",
+                        documentId = "welcome_krs_bullion",
+                        fieldsMap = mapOf(
+                            "authorId" to "admin_km_jashwanth",
+                            "title" to "KRS Gold & Silver Official Live Desk",
+                            "message" to "Live 1-second MCX Bullion broadcast active. Official announcements are controlled by K.M. Jashwanth.",
+                            "priority" to "high",
+                            "isActive" to true,
+                            "createdAt" to "__SERVER_TIMESTAMP__",
+                            "updatedAt" to "__SERVER_TIMESTAMP__"
+                        )
+                    )
+                }
+            }
         }
     }
 
@@ -1070,20 +1091,6 @@ class AdminCloudDatabaseRepository(
         val snap = runCatching { docRef.get().await() }.getOrNull()
         if (snap == null || !snap.exists()) {
             val defaultNotes = "KRS Gold & Silver Live MCX v1.0 is up to date. Add new releases here or via Admin settings to push OTA updates to all users."
-            syncViaFirestoreRestApi(
-                collection = "app_config",
-                documentId = "app_update",
-                fieldsMap = mapOf(
-                    "latestVersionCode" to 1,
-                    "latestVersionName" to "1.0",
-                    "apkDownloadUrl" to "",
-                    "releaseNotes" to defaultNotes,
-                    "isForceUpdate" to false,
-                    "isUpdateEnabled" to false,
-                    "updatedBy" to "admin_km_jashwanth",
-                    "updatedAt" to "__SERVER_TIMESTAMP__"
-                )
-            )
             val payload = mapOf(
                 "latestVersionCode" to 1L,
                 "latestVersionName" to "1.0",
@@ -1094,29 +1101,32 @@ class AdminCloudDatabaseRepository(
                 "updatedBy" to "admin_km_jashwanth",
                 "updatedAt" to FieldValue.serverTimestamp()
             )
-            runCatching { docRef.set(payload).await() }
+            val sdkResult = runCatching { docRef.set(payload).await() }
+            if (sdkResult.isFailure) {
+                val err = sdkResult.exceptionOrNull()
+                if (err != null && !isPermissionDeniedError(err)) {
+                    syncViaFirestoreRestApi(
+                        collection = "app_config",
+                        documentId = "app_update",
+                        fieldsMap = mapOf(
+                            "latestVersionCode" to 1,
+                            "latestVersionName" to "1.0",
+                            "apkDownloadUrl" to "",
+                            "releaseNotes" to defaultNotes,
+                            "isForceUpdate" to false,
+                            "isUpdateEnabled" to false,
+                            "updatedBy" to "admin_km_jashwanth",
+                            "updatedAt" to "__SERVER_TIMESTAMP__"
+                        )
+                    )
+                }
+            }
         }
 
         val initialUpdateRef = db.collection("updates").document("v1_0_initial")
         val initialUpdateSnap = runCatching { initialUpdateRef.get().await() }.getOrNull()
         if (initialUpdateSnap == null || !initialUpdateSnap.exists()) {
             val initialNotes = "Initial KRS Gold & Silver Live MCX v1.0 release baseline in the /updates database collection."
-            syncViaFirestoreRestApi(
-                collection = "updates",
-                documentId = "v1_0_initial",
-                fieldsMap = mapOf(
-                    "versionCode" to 1,
-                    "versionName" to "1.0",
-                    "apkDownloadUrl" to "",
-                    "releaseNotes" to initialNotes,
-                    "isForceUpdate" to false,
-                    "isUpdateEnabled" to false,
-                    "targetUsername" to "",
-                    "updatedBy" to "admin_km_jashwanth",
-                    "createdAt" to "__SERVER_TIMESTAMP__",
-                    "updatedAt" to "__SERVER_TIMESTAMP__"
-                )
-            )
             val entryPayload = mapOf(
                 "versionCode" to 1L,
                 "versionName" to "1.0",
@@ -1129,7 +1139,28 @@ class AdminCloudDatabaseRepository(
                 "createdAt" to FieldValue.serverTimestamp(),
                 "updatedAt" to FieldValue.serverTimestamp()
             )
-            runCatching { initialUpdateRef.set(entryPayload).await() }
+            val sdkResult = runCatching { initialUpdateRef.set(entryPayload).await() }
+            if (sdkResult.isFailure) {
+                val err = sdkResult.exceptionOrNull()
+                if (err != null && !isPermissionDeniedError(err)) {
+                    syncViaFirestoreRestApi(
+                        collection = "updates",
+                        documentId = "v1_0_initial",
+                        fieldsMap = mapOf(
+                            "versionCode" to 1,
+                            "versionName" to "1.0",
+                            "apkDownloadUrl" to "",
+                            "releaseNotes" to initialNotes,
+                            "isForceUpdate" to false,
+                            "isUpdateEnabled" to false,
+                            "targetUsername" to "",
+                            "updatedBy" to "admin_km_jashwanth",
+                            "createdAt" to "__SERVER_TIMESTAMP__",
+                            "updatedAt" to "__SERVER_TIMESTAMP__"
+                        )
+                    )
+                }
+            }
         }
     }
 
@@ -1333,18 +1364,6 @@ class AdminCloudDatabaseRepository(
         val cleanModel = deviceModel.trim().ifBlank { "Android Device" }.take(100)
         val cleanCode = versionCode.coerceIn(1L, 1_000_000L)
 
-        syncViaFirestoreRestApi(
-            collection = "app_installations",
-            documentId = docId,
-            fieldsMap = mapOf(
-                "username" to cleanUser,
-                "versionCode" to cleanCode,
-                "versionName" to cleanVersionName,
-                "deviceModel" to cleanModel,
-                "updatedAt" to "__SERVER_TIMESTAMP__"
-            )
-        )
-
         val payload = mapOf(
             "username" to cleanUser,
             "versionCode" to cleanCode,
@@ -1352,7 +1371,26 @@ class AdminCloudDatabaseRepository(
             "deviceModel" to cleanModel,
             "updatedAt" to FieldValue.serverTimestamp()
         )
-        db.collection("app_installations").document(docId).set(payload).await()
+        try {
+            db.collection("app_installations").document(docId).set(payload).await()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            val restOk = !isPermissionDeniedError(e) && syncViaFirestoreRestApi(
+                collection = "app_installations",
+                documentId = docId,
+                fieldsMap = mapOf(
+                    "username" to cleanUser,
+                    "versionCode" to cleanCode,
+                    "versionName" to cleanVersionName,
+                    "deviceModel" to cleanModel,
+                    "updatedAt" to "__SERVER_TIMESTAMP__"
+                )
+            )
+            if (!restOk) {
+                throw e
+            }
+        }
     }
 
     // ==================== ADMIN-ONLY DATABASE OPERATIONS ====================
