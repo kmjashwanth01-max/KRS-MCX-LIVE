@@ -973,7 +973,7 @@ object UserAccountManager {
         unlockApp()
         recordSignInAndMailAdmin(
             updatedUser,
-            if (isNewAccount) "GOOGLE ACCOUNT CREATED & SIGNED IN" else "GOOGLE SIGN-IN ALERT"
+            if (isNewAccount) "CLOUD ACCOUNT CREATED & SIGNED IN" else "CLOUD SIGN-IN ALERT"
         )
     }
 

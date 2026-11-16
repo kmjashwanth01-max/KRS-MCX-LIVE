@@ -277,7 +277,7 @@ object GeminiKnowledgeBase {
                 • **App Features**:
                   1. Real-time 1-second physical and MCX bullion rates from KRS Bullion 1s live feed.
                   2. Home Screen Widget with live cent prices updating every second.
-                  3. Gemini 3.8 Flash AI Assistant answering any question on markets, leadership, weather, and science.
+                  3. JASHX AI Assistant answering any question on markets, leadership, weather, and science.
                   4. Secure 4-Digit App Lock with Biometric Authentication (fingerprint/face unlock).
                   5. Multi-user personal account registration.
             """.trimIndent()
@@ -287,7 +287,7 @@ object GeminiKnowledgeBase {
         if (q.contains("hello") || q.contains("hi") || q.contains("namaste") || q.contains("vanakkam") || q.contains("good morning") || q.contains("good afternoon") || q.contains("good evening")) {
             val (time, date) = getIstTimeAndDate()
             return """
-                Vanakkam! 🙏 Namaste! I am your **KRS Gemini AI Assistant**, built by **K.M. Jashwanth**.
+                Vanakkam! 🙏 Namaste! I am **JASHX AI**, built by **K.M. Jashwanth**.
                 
                 • Current Time: **$time** (IST)
                 • Today's Date: **$date**
@@ -317,12 +317,12 @@ object GeminiKnowledgeBase {
         // 12. Comprehensive Intelligent Synthesis for Any Other Query
         val (time, date) = getIstTimeAndDate()
         return """
-            💡 **Gemini AI Response:**
+            💡 **JASHX AI Response:**
             
             Regarding your inquiry: **"$question"**
             
             • **Current Context**: Verified as of **$time IST**, **$date**.
-            • **Summary Answer**: Based on official information, your query has been processed with Gemini AI intelligence.
+            • **Summary Answer**: Based on live market and encyclopedia data, your query has been processed by JASHX AI intelligence.
             • **Live Market Status**: $ratesContext
             
             If you need specific details, facts, leadership names, math calculations, weather updates, or bullion market projections, simply ask!

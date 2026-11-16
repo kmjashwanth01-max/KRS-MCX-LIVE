@@ -235,7 +235,7 @@ fun SettingsView(
                         )
                         Toast.makeText(
                             context,
-                            "Signed in with Google as ${firebaseUser.displayName ?: firebaseUser.email ?: "Trader"}",
+                            "Signed in to Cloud Account as ${firebaseUser.displayName ?: firebaseUser.email ?: "Trader"}",
                             Toast.LENGTH_SHORT
                         ).show()
                     },
@@ -769,7 +769,7 @@ fun SettingsView(
                             color = if (isGoogleAdmin) MarketGreenGlow else Color(0xFF450A0A)
                         ) {
                             Text(
-                                text = if (isGoogleAdmin) "ADMIN VERIFIED" else "GOOGLE SIGN-IN NEEDED",
+                                text = if (isGoogleAdmin) "ADMIN VERIFIED" else "CLOUD SIGN-IN NEEDED",
                                 color = if (isGoogleAdmin) MarketGreen else Color(0xFFFF8A80),
                                 fontSize = 8.5.sp,
                                 fontWeight = FontWeight.Bold,
@@ -780,7 +780,7 @@ fun SettingsView(
 
                     if (!isGoogleAdmin) {
                         Text(
-                            text = "Sign in with Admin Google account (kmjashwanth01@gmail.com or krsmcxofficial@gmail.com) to publish updates securely:",
+                            text = "Sign in with Admin Cloud account (kmjashwanth01@gmail.com or krsmcxofficial@gmail.com) to publish updates securely:",
                             color = Color(0xFFFFC5C5),
                             fontSize = 11.sp
                         )

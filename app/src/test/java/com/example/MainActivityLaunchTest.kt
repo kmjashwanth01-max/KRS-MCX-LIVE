@@ -67,9 +67,10 @@ class MainActivityLaunchTest {
         composeTestRule.onNodeWithTag("announcements_tab_view").assertIsDisplayed()
         composeTestRule.onNodeWithTag("admin_publish_announcement_card").assertDoesNotExist()
 
-        // Open Tools tab and verify Silver-Only widget preview and pin button exist
+        // Open Tools tab and verify Silver-Only widget preview and pin button exist and Unit Converter is removed
         composeTestRule.onNodeWithTag("tab_tools").performClick()
         composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("unit_converter_card").assertDoesNotExist()
         composeTestRule.onNodeWithTag("silver_only_widget_preview").performScrollTo().assertIsDisplayed()
         composeTestRule.onNodeWithTag("pin_silver_widget_button").performScrollTo().assertIsDisplayed()
     }

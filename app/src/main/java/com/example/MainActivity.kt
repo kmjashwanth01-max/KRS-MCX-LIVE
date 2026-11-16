@@ -211,13 +211,10 @@ fun MainAppScreen(
     val aiErrorMessage by viewModel.aiErrorMessage.collectAsState()
     val livePrediction by viewModel.livePrediction.collectAsState()
     val chatMessages by viewModel.chatMessages.collectAsState()
+    val liveVoiceState by viewModel.liveVoiceState.collectAsState()
     val announcements by viewModel.announcements.collectAsState()
     val isRefreshingAnnouncements by viewModel.isRefreshingAnnouncements.collectAsState()
     val showAnnouncementLaunchDialog by viewModel.showAnnouncementLaunchDialog.collectAsState()
-
-    // Unit converter helper states (for Tools tab)
-    var converterInput by remember { mutableStateOf(10.0) }
-    var converterUnit by remember { mutableStateOf("Tola (11.6638g)") }
 
     val gold999 = contracts.firstOrNull { it.id == "gold_999" }
     val silver1kg = contracts.firstOrNull { it.id == "silver_1kg" }
@@ -705,17 +702,7 @@ fun MainAppScreen(
                             spotInr = spotInr
                         )
 
-                        // 4. Hero Price Card (matching requested reference image)
-                        HeroPriceCard(
-                            contract = selectedContract,
-                            onSelectGold = { viewModel.selectContract("gold_999") },
-                            onSelectSilver = { viewModel.selectContract("silver_1kg") },
-                            onSelectMcxGold = { viewModel.selectContract("mcx_gold") },
-                            onSelectMcxSilver = { viewModel.selectContract("mcx_silver") },
-                            onOpenAlertModal = { showAlertModal = true }
-                        )
-
-                        // 5. Home Screen Widgets Promo Card (4-rate Gold/Silver Widget + Silver-Only Widget: MCX & 1kg)
+                        // 4. Home Screen Widgets Promo Card (4-rate Gold/Silver Widget + Silver-Only Widget: MCX & 1kg)
                         HomeScreenWidgetPromoCard(
                             goldContract = gold999,
                             silverContract = silver1kg,
@@ -765,7 +752,7 @@ fun MainAppScreen(
                 }
 
                 2 -> {
-                    // JASHX AI TAB: Autonomous Bullion Intelligence & Live Market Predictions
+                    // JASHX AI TAB: Autonomous Bullion Intelligence, Live Voice & Live Market Predictions
                     JashxAiMarketAnalystView(
                         gold999 = gold999,
                         silver1kg = silver1kg,
@@ -779,6 +766,11 @@ fun MainAppScreen(
                         errorMessage = aiErrorMessage,
                         prediction = livePrediction,
                         chatMessages = chatMessages,
+                        liveVoiceState = liveVoiceState,
+                        onStartLiveVoice = { viewModel.startLiveVoice() },
+                        onStopLiveVoice = { viewModel.stopLiveVoice() },
+                        onSelectVoicePersona = { persona -> viewModel.selectVoicePersona(persona) },
+                        onClearVoiceError = { viewModel.clearLiveVoiceError() },
                         onGenerateAnalysis = { viewModel.requestAiAnalysis() },
                         onRefreshPrediction = { viewModel.refreshPrediction() },
                         onAskQuestion = { query -> viewModel.askAiQuestion(query) },
@@ -848,7 +840,7 @@ fun MainAppScreen(
                 }
 
                 4 -> {
-                    // TOOLS TAB: Home Screen Widget Promo, Unit Converter, City Rates & Support Info
+                    // TOOLS TAB: Home Screen Widget Promo, City Rates & Support Info
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
@@ -970,15 +962,6 @@ fun MainAppScreen(
                             isMarketOpen = isMarketOpen,
                             isPhysicalBullionOpen = isMarketOpen && isPhysicalBullionOpen,
                             liveIstClock = liveIstClock
-                        )
-
-                        UnitConverterView(
-                            goldContract = gold999,
-                            silverContract = silver1kg,
-                            inputAmount = converterInput,
-                            selectedUnitName = converterUnit,
-                            onInputChange = { converterInput = it },
-                            onUnitChange = { converterUnit = it }
                         )
 
                         CityRatesView(cityRates = cityRates)

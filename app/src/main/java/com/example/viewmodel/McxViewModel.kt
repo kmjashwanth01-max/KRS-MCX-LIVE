@@ -5,6 +5,10 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.BuildConfig
 import com.example.data.JashxAiEngine
+import com.example.data.JashxKnowledgeDatabase
+import com.example.data.JashxLiveVoiceManager
+import com.example.data.JashxVoicePersona
+import com.example.data.LiveVoiceUiState
 import com.example.data.McxRatesRepository
 import com.example.data.VijayBullionFeed
 import com.example.model.BullionCityRate
@@ -18,6 +22,7 @@ import com.example.data.repository.CloudAppUpdateConfig
 import com.example.data.repository.CloudAppUpdateRecord
 import com.example.model.OrderBookEntry
 import com.example.model.PricePoint
+import com.example.util.BrandSanitizer
 import com.example.util.NotificationHelper
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
@@ -37,6 +42,15 @@ class McxViewModel(application: Application? = null) : AndroidViewModel(applicat
 
     private val repository = McxRatesRepository(application)
     private val jashxEngine = JashxAiEngine()
+    private val liveVoiceManager = JashxLiveVoiceManager(
+        scope = viewModelScope,
+        application = application,
+        onVoiceTurnCompleted = { userText, aiText ->
+            appendVoiceTurnToChat(userText, aiText)
+        }
+    )
+
+    val liveVoiceState: StateFlow<LiveVoiceUiState> = liveVoiceManager.uiState
 
     val contracts: StateFlow<List<CommodityContract>> = repository.contracts
     val activeVijayFeed: StateFlow<VijayBullionFeed> = repository.activeVijayFeed
@@ -136,18 +150,25 @@ class McxViewModel(application: Application? = null) : AndroidViewModel(applicat
     private var lastReportedUsername: String? = null
 
     init {
-        // Automatically trigger initial JASHX AI commentary & prediction
+        // Warm live news feeds & trigger initial JASHX AI commentary + prediction
+        JashxKnowledgeDatabase.refreshLiveFeedsAsync(force = true)
         requestAiAnalysis()
         refreshPrediction()
         bootstrapAndObserveAnnouncements(application)
         bootstrapAndObserveAppUpdate(application)
 
-        // Continuously update JASHX AI with the latest 1-second Vijay Bullion feeds
+        // Continuously update JASHX AI (text & live voice) with the latest 1-second Vijay Bullion feeds
         viewModelScope.launch {
             activeVijayFeed.collect { feed ->
                 val current = selectedContract.value ?: contracts.value.firstOrNull { it.id == selectedContractId.value }
                 val pred = jashxEngine.calculateLivePrediction(current, feed)
                 _livePrediction.value = pred
+                liveVoiceManager.updateLiveTelemetry(
+                    feed = feed,
+                    isMarketOpen = isMarketOpen.value,
+                    marketStatusText = marketStatusText.value,
+                    prediction = pred
+                )
             }
         }
 
@@ -422,7 +443,8 @@ class McxViewModel(application: Application? = null) : AndroidViewModel(applicat
                         "Saved release v$latestVersionName in /updates database (prompt disabled)."
                     }
                 }.onFailure { err ->
-                    _updatePublishMessage.value = "Publish failed: ${err.localizedMessage ?: err.message ?: "Sign in with Admin Google account first"}"
+                    val rawErr = err.localizedMessage ?: err.message ?: "Sign in with Admin Cloud account first"
+                    _updatePublishMessage.value = "Publish failed: ${BrandSanitizer.sanitizeForUserDisplay(rawErr)}"
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -533,10 +555,57 @@ class McxViewModel(application: Application? = null) : AndroidViewModel(applicat
                 throw e
             } catch (e: Exception) {
                 android.util.Log.e("McxViewModel", "JASHX AI chat error", e)
-                _aiErrorMessage.value = "JASHX AI: ${e.message}"
+                _aiErrorMessage.value = BrandSanitizer.sanitizeForUserDisplay("JASHX AI: ${e.message ?: "Unable to connect"}")
             } finally {
                 _isGeneratingAi.value = false
             }
         }
+    }
+
+    fun startLiveVoice() {
+        liveVoiceManager.updateLiveTelemetry(
+            feed = activeVijayFeed.value,
+            isMarketOpen = isMarketOpen.value,
+            marketStatusText = marketStatusText.value,
+            prediction = _livePrediction.value
+        )
+        liveVoiceManager.startVoiceSession()
+    }
+
+    fun stopLiveVoice() {
+        liveVoiceManager.stopVoiceSession()
+    }
+
+    fun selectVoicePersona(persona: JashxVoicePersona) {
+        liveVoiceManager.selectPersona(persona)
+    }
+
+    fun clearLiveVoiceError() {
+        liveVoiceManager.clearError()
+    }
+
+    private fun appendVoiceTurnToChat(userText: String, aiText: String) {
+        val cleanUser = BrandSanitizer.sanitizeForUserDisplay(userText).trim()
+        val cleanAi = BrandSanitizer.sanitizeForUserDisplay(aiText).trim()
+        if (cleanUser.isBlank() && cleanAi.isBlank()) return
+
+        val additions = buildList {
+            if (cleanUser.isNotBlank()) add(ChatMessage(text = "🎙️ $cleanUser", isFromUser = true))
+            if (cleanAi.isNotBlank()) add(ChatMessage(text = cleanAi, isFromUser = false))
+        }
+        val updated = (_chatMessages.value + additions).takeLast(40)
+        _chatMessages.value = updated
+        if (cleanAi.isNotBlank()) {
+            _aiAnalysisText.value = cleanAi
+        }
+        val user = com.example.util.UserAccountManager.currentUser.value
+        if (user != null) {
+            com.example.util.UserAccountManager.saveUserChat(user.id, updated)
+        }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        liveVoiceManager.stopVoiceSession()
     }
 }

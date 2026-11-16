@@ -89,22 +89,44 @@ object JashxKnowledgeDatabase {
 
     fun refreshLiveFeedsAsync(force: Boolean = false) {
         val now = System.currentTimeMillis()
-        if (!force && now - lastFeedRefreshMs < 180_000L) return
+        if (!force && now - lastFeedRefreshMs < 45_000L) return
         lastFeedRefreshMs = now
 
         scope.launch {
             try {
-                val combined = mutableListOf<LiveNewsFeedItem>()
-                fetchGoogleNewsRss("Gold Silver MCX rate India", "BULLION", 2).let { combined.addAll(it) }
-                fetchGoogleNewsRss("Tamil Nadu politics Chennai", "TN POLITICS", 2).let { combined.addAll(it) }
-                fetchGoogleNewsRss("India politics Narendra Modi economy", "INDIA", 2).let { combined.addAll(it) }
-                fetchGoogleNewsRss("World geopolitics economy", "WORLD", 2).let { combined.addAll(it) }
-
-                if (combined.isNotEmpty()) {
-                    _liveTrendingFeeds.value = combined
-                }
+                refreshAndGetLiveHeadlines()
             } catch (_: Throwable) {}
         }
+    }
+
+    suspend fun refreshAndGetLiveHeadlines(
+        topic: String? = null,
+        limitPerTopic: Int = 2
+    ): List<LiveNewsFeedItem> = withContext(Dispatchers.IO) {
+        val combined = mutableListOf<LiveNewsFeedItem>()
+        try {
+            if (!topic.isNullOrBlank()) {
+                fetchGoogleNewsRss(topic, "LIVE WEB", limitPerTopic.coerceAtLeast(4)).let {
+                    combined.addAll(it)
+                }
+            }
+            fetchGoogleNewsRss("Gold Silver MCX rate India", "BULLION", limitPerTopic).let { combined.addAll(it) }
+            fetchGoogleNewsRss("Tamil Nadu politics Chennai", "TN POLITICS", limitPerTopic).let { combined.addAll(it) }
+            fetchGoogleNewsRss("India economy politics today", "INDIA", limitPerTopic).let { combined.addAll(it) }
+            fetchGoogleNewsRss("World geopolitics economy today", "WORLD", limitPerTopic).let { combined.addAll(it) }
+
+            if (combined.isNotEmpty() && topic.isNullOrBlank()) {
+                _liveTrendingFeeds.value = combined
+                lastFeedRefreshMs = System.currentTimeMillis()
+            } else if (combined.isNotEmpty()) {
+                val general = combined.filterNot { it.category == "LIVE WEB" }
+                if (general.isNotEmpty()) {
+                    _liveTrendingFeeds.value = general
+                    lastFeedRefreshMs = System.currentTimeMillis()
+                }
+            }
+        } catch (_: Throwable) {}
+        if (combined.isNotEmpty()) combined else _liveTrendingFeeds.value
     }
 
     suspend fun fetchGoogleNewsRss(
@@ -160,13 +182,18 @@ object JashxKnowledgeDatabase {
                                 XmlPullParser.END_TAG -> {
                                     if (tagName.equals("item", ignoreCase = true) && insideItem) {
                                         insideItem = false
-                                        val cleanTitle = title.substringBeforeLast(" - ").trim()
+                                        val cleanTitle = com.example.util.BrandSanitizer.sanitizeForUserDisplay(
+                                            title.substringBeforeLast(" - ").trim()
+                                        )
+                                        val cleanSource = com.example.util.BrandSanitizer.sanitizeForUserDisplay(
+                                            source.ifBlank { "Live Feed" }
+                                        )
                                         if (cleanTitle.isNotBlank()) {
                                             items.add(
                                                 LiveNewsFeedItem(
                                                     category = categoryLabel,
                                                     title = cleanTitle,
-                                                    source = source,
+                                                    source = cleanSource,
                                                     pubDate = pubDate
                                                 )
                                             )
@@ -204,7 +231,7 @@ object JashxKnowledgeDatabase {
 
     /**
      * Instant (<10ms) verified matcher for curated & deterministic topics.
-     * Returns null when a question requires open-domain Wikipedia / DuckDuckGo / Gemini 3.8 Flash synthesis.
+     * Returns null when a question requires open-domain live retrieval / JASHX AI synthesis.
      */
     fun matchDirectRelevantFeed(rawQuery: String, liveFeed: VijayBullionFeed): String? {
         val normalized = normalizeQuery(rawQuery)
@@ -222,8 +249,13 @@ object JashxKnowledgeDatabase {
         if (normalized.contains("who created you") ||
             normalized.contains("who made you") ||
             normalized.contains("who built you") ||
+            normalized.contains("who developed you") ||
+            normalized.contains("who designed you") ||
+            normalized.contains("who owns you") ||
             normalized.contains("who is your creator") ||
             normalized.contains("who is your founder") ||
+            normalized.contains("your creator") ||
+            normalized.contains("your founder") ||
             normalized.contains("founder of jashx") ||
             normalized.contains("who created jashx") ||
             normalized.contains("who made this app") ||
@@ -237,16 +269,11 @@ object JashxKnowledgeDatabase {
             """.trimIndent()
         }
 
-        if (normalized.contains("who are you") ||
-            normalized.contains("what is your name") ||
-            normalized.contains("tell me about yourself") ||
-            normalized == "what is jashx ai" ||
-            normalized == "jashx ai"
-        ) {
+        if (isIdentitySelfQuery(normalized)) {
             return """
-                ✨ Hey there! I am JASHX AI, your human-speaking AI companion and live bullion intelligence partner.
+                ✨ Hey there! I am JASHX AI, your real-time human-speaking AI assistant and live bullion intelligence partner.
                 • K.M. Jashwanth is the Founder of JASHX AI.
-                • You can ask me anything—from 1-second live Gold & Silver rates and your local weather in ${locState.city} to Tamil Nadu politics, Indian & World affairs, science, history, coding, math, or today's latest feeds!
+                • You can talk or type to me about anything—1-second live Gold & Silver rates, local weather in ${locState.city}, Tamil Nadu politics, Indian & World news, science, history, math, or today's latest live feeds!
             """.trimIndent()
         }
 
@@ -662,7 +689,7 @@ object JashxKnowledgeDatabase {
         }
 
         // Tech & Corporate Leaders
-        if (normalized.contains("sundar pichai")) return "💻 **Sundar Pichai** (born in Tamil Nadu and alumnus of IIT Kharagpur) is the **CEO of Google and Alphabet Inc.**"
+        if (normalized.contains("sundar pichai")) return "💻 **Sundar Pichai** (born in Tamil Nadu and alumnus of IIT Kharagpur) is a prominent global technology executive serving as **Chief Executive Officer of Alphabet**."
         if (normalized.contains("sridhar vembu") || normalized.contains("zoho")) return "💻 **Zoho Corporation**, founded by **Sridhar Vembu**, is a global cloud software powerhouse headquartered in Chennai and Tenkasi, Tamil Nadu."
 
         if (normalized.contains("joke")) return "😄 Here's a quick bullion joke for you: Why did the gold bar go to school? Because it wanted to become **24 Karat smart**!"
@@ -675,6 +702,10 @@ object JashxKnowledgeDatabase {
      * Queries Wikipedia REST API, DuckDuckGo Instant Answer API, and Google News RSS for accurate, verified answers.
      */
     suspend fun fetchLiveEncyclopediaAnswer(rawQuery: String): String? = withContext(Dispatchers.IO) {
+        val normalized = normalizeQuery(rawQuery)
+        if (isIdentitySelfQuery(normalized) || normalized in listOf("hi", "hello", "hey", "vanakkam", "namaste", "how are you", "thanks", "thank you", "ok", "okay", "bye")) {
+            return@withContext null
+        }
         val cleanTopic = extractSearchTopic(rawQuery)
         if (cleanTopic.isBlank()) return@withContext null
 
@@ -758,7 +789,7 @@ object JashxKnowledgeDatabase {
             }
         } catch (_: Exception) {}
 
-        // 3. Fallback to Google News RSS for any current topic not in Wikipedia
+        // 3. Fallback to Live Web News RSS for any current topic not in Wikipedia
         val newsFallback = fetchGoogleNewsRss(cleanTopic, "LIVE FEED", 3)
         if (newsFallback.isNotEmpty()) {
             val bullets = newsFallback.joinToString("\n") { "• ${it.title} (${it.source})" }
@@ -766,6 +797,49 @@ object JashxKnowledgeDatabase {
         }
 
         null
+    }
+
+    /**
+     * Fetches comprehensive up-to-date real-time context (live news RSS, Wikipedia summary,
+     * DuckDuckGo instant answer, and fresh trending headlines) for both JASHX AI text and live voice.
+     */
+    suspend fun fetchUpToDateContext(rawQuery: String): String = withContext(Dispatchers.IO) {
+        val normalized = normalizeQuery(rawQuery)
+        if (isIdentitySelfQuery(normalized)) {
+            return@withContext "Verified JASHX AI Identity: You are JASHX AI, the real-time voice and market intelligence assistant built for the KRS Gold & Silver app. K.M. Jashwanth is the Founder of JASHX AI. Answer directly as JASHX AI and do NOT reference any movie, song, or show."
+        }
+        val cleanTopic = extractSearchTopic(rawQuery).ifBlank { rawQuery.trim() }
+        val (istTime, istDate) = getIstTimeAndDate()
+        val loc = LocationServiceManager.locationState.value
+
+        val sections = mutableListOf<String>()
+        sections.add("Current IST Date & Time: $istDate, $istTime")
+        sections.add("User Location & Weather: ${loc.city}, ${loc.state}, ${loc.country} | ${String.format("%.1f", loc.temperatureC)}°C (${loc.weatherCondition}, Wind ${String.format("%.1f", loc.windSpeedKmh)} km/h)")
+
+        val topicNews = if (cleanTopic.isNotBlank()) fetchGoogleNewsRss(cleanTopic, "TOPIC NEWS", 4) else emptyList()
+        if (topicNews.isNotEmpty()) {
+            sections.add(
+                "Fresh News on '$cleanTopic':\n" + topicNews.joinToString("\n") {
+                    "- [${it.pubDate}] ${it.title} (${it.source})"
+                }
+            )
+        }
+
+        val encyclopedia = fetchLiveEncyclopediaAnswer(rawQuery)
+        if (!encyclopedia.isNullOrBlank()) {
+            sections.add("Verified Reference:\n${com.example.util.BrandSanitizer.sanitizeForUserDisplay(encyclopedia)}")
+        }
+
+        val generalHeadlines = if (topicNews.isEmpty()) refreshAndGetLiveHeadlines(limitPerTopic = 2) else _liveTrendingFeeds.value
+        if (generalHeadlines.isNotEmpty()) {
+            sections.add(
+                "Latest Live Trending Headlines:\n" + generalHeadlines.take(6).joinToString("\n") {
+                    "- [${it.category}] ${it.title} (${it.source}, ${it.pubDate})"
+                }
+            )
+        }
+
+        com.example.util.BrandSanitizer.sanitizeForUserDisplay(sections.joinToString("\n\n"))
     }
 
     private fun extractSearchTopic(rawQuery: String): String {
@@ -784,20 +858,47 @@ object JashxKnowledgeDatabase {
         return "💡 **JASHX AI**: Regarding **\"$rawQuery\"** — Here are your live references: Physical Gold 999 (10g) is ₹${String.format("%,.0f", liveFeed.goldBarRate10g)} and Silver 1kg is ₹${String.format("%,.0f", liveFeed.silverBarRate1kg)}. Ask me any question on bullion, science, politics, history, or math!"
     }
 
+    private fun isIdentitySelfQuery(normalized: String): Boolean {
+        return normalized.contains("who are you") ||
+            normalized.contains("what are you") ||
+            normalized.contains("what is your name") ||
+            normalized.contains("whats your name") ||
+            normalized.contains("what's your name") ||
+            normalized.contains("your name") ||
+            normalized.contains("tell me about yourself") ||
+            normalized.contains("tell me about you") ||
+            normalized.contains("about yourself") ||
+            normalized.contains("introduce yourself") ||
+            normalized.contains("identify yourself") ||
+            normalized.contains("who is jashx") ||
+            normalized.contains("what can you do") ||
+            normalized == "what is jashx ai" ||
+            normalized == "jashx ai" ||
+            normalized == "jashx"
+    }
+
     private fun normalizeQuery(input: String): String {
         return input.lowercase().trim()
             .replace(Regex("""^[^\w\d]+"""), "")
-            .replace("?", "")
+            .replace(Regex("""[?!.,]+$"""), "")
+            .replace(Regex("""\bu\b"""), "you")
+            .replace(Regex("""\br\b"""), "are")
+            .replace(Regex("""\bur\b"""), "your")
+            .replace(Regex("""\bhu\b"""), "who")
+            .replace(Regex("""\bhw\b"""), "how")
+            .replace(Regex("""\bwats\b"""), "what is")
+            .replace(Regex("""\bwat\b"""), "what")
+            .replace(Regex("""\babt\b"""), "about")
+            .replace(Regex("""\bpls\b|\bplz\b"""), "please")
             .replace("tamilnadu", "tamil nadu")
             .replace("cheif minister", "chief minister")
             .replace("cheif", "chief")
             .replace("soverign", "sovereign")
             .replace("sovren", "sovereign")
             .replace("wether", "weather")
-            .replace("wat is", "what is")
-            .replace("wat time", "what time")
             .replace("priem minister", "prime minister")
             .replace("cbe", "coimbatore")
+            .replace(Regex("""\s+"""), " ")
             .trim()
     }
 

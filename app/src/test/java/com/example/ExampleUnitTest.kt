@@ -479,4 +479,63 @@ class ExampleUnitTest {
             com.example.util.AppUpdateInstaller.normalizeDirectApkUrl("https://www.dropbox.com/s/demo/app.apk?dl=0")
         )
     }
+
+    @Test
+    fun testJashxLiveVoiceAndBrandSanitization() {
+        val dirtySamples = listOf(
+            "Powered by Google Gemini 3.8 Flash",
+            "Gemini 3.8 Live response via Google Search and Google News",
+            "Sign in with Google Account on Google Play"
+        )
+        dirtySamples.forEach { sample ->
+            val clean = com.example.util.BrandSanitizer.sanitizeForUserDisplay(sample)
+            assertFalse("Sanitized text must not contain 'gemini': $clean", clean.contains("gemini", ignoreCase = true))
+            assertFalse("Sanitized text must not contain 'google': $clean", clean.contains("google", ignoreCase = true))
+        }
+
+        val engine = JashxAiEngine()
+        val feed = VijayBullionFeed(
+            goldBarRate10g = 146300.0,
+            silverBarRate1kg = 189440.0,
+            mcxGoldBid = 142468.0,
+            mcxSilverBid = 185085.0,
+            spotGoldBid = 4069.99,
+            spotSilverBid = 51.90,
+            spotInrBid = 94.09,
+            isBroadcastOpen = true
+        )
+        val liveSummary = engine.buildLiveFeedSummaryForAi(feed, isMarketOpen = true, marketStatusText = "MARKET OPEN")
+        assertTrue("Live summary must include formatted Gold 999 rate", liveSummary.contains("146,300"))
+        assertTrue("Live summary must include formatted Silver 1kg rate", liveSummary.contains("189,440"))
+        assertTrue("Live summary must reflect OPEN status", liveSummary.contains("MARKET OPEN"))
+        assertFalse("Live summary must never mention Gemini", liveSummary.contains("gemini", ignoreCase = true))
+        assertFalse("Live summary must never mention Google", liveSummary.contains("google", ignoreCase = true))
+
+        val defaultVoiceState = com.example.data.LiveVoiceUiState()
+        assertEquals(com.example.data.LiveVoiceStatus.IDLE, defaultVoiceState.status)
+        assertEquals(com.example.data.JashxVoicePersona.KORE, defaultVoiceState.selectedPersona)
+        assertEquals(0f, defaultVoiceState.micLevel, 0.0001f)
+        assertEquals(4, com.example.data.JashxVoicePersona.entries.size)
+        assertEquals("Kore", com.example.data.JashxVoicePersona.KORE.voiceId)
+        assertTrue(
+            "Live voice models must include supported Live API endpoints",
+            com.example.data.JashxLiveVoiceManager.LIVE_API_MODELS.contains("gemini-3.1-flash-live-preview") &&
+                com.example.data.JashxLiveVoiceManager.LIVE_API_MODELS.contains("gemini-2.5-flash-native-audio-preview-12-2025")
+        )
+    }
+
+    @Test
+    fun testWhoAreUAndIdentityShorthands() {
+        val feed = VijayBullionFeed()
+        val variants = listOf("who are u", "who r u", "hu r u", "who are you?", "tell me abt u", "what r u")
+        variants.forEach { query ->
+            val ans = JashxKnowledgeDatabase.queryKnowledgeBase(query, feed)
+            assertTrue("Query '$query' must identify as JASHX AI: $ans", ans.contains("JASHX AI"))
+            assertTrue("Query '$query' must mention K.M. Jashwanth: $ans", ans.contains("K.M. Jashwanth"))
+            assertFalse("Query '$query' must never mention movie/TV/song: $ans", ans.contains("movie", ignoreCase = true) || ans.contains("television", ignoreCase = true))
+        }
+
+        val creatorShorthand = JashxKnowledgeDatabase.queryKnowledgeBase("who made u", feed)
+        assertTrue(creatorShorthand.contains("K.M. Jashwanth is the Founder of JASHX AI"))
+    }
 }

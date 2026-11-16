@@ -121,16 +121,16 @@ object GoogleAuthManager {
                 if (user != null) {
                     onAuthSuccess(user)
                 } else {
-                    onAuthError("Google authentication failed: empty user.")
+                    onAuthError("Cloud authentication failed: empty user.")
                 }
             } catch (e: GoogleIdTokenParsingException) {
-                Log.e("GoogleAuthManager", "Invalid Google ID token response", e)
-                onAuthError("Invalid Google ID token response.")
+                Log.e("GoogleAuthManager", "Invalid Cloud ID token response", e)
+                onAuthError("Invalid Cloud ID token response.")
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Log.e("GoogleAuthManager", "Firebase signInWithCredential failed", e)
-                onAuthError(e.localizedMessage ?: "Firebase Google Sign-In failed.")
+                onAuthError(BrandSanitizer.sanitizeForUserDisplay(e.localizedMessage ?: "Cloud Sign-In failed."))
             }
         } else {
             onAuthError("Unexpected credential type returned.")
@@ -153,7 +153,7 @@ fun GoogleSignInButton(
     OutlinedButton(
         onClick = {
             if (credentialManager == null) {
-                onAuthError("Google Sign-In unavailable on this device.")
+                onAuthError("One-Tap Cloud Sign-In unavailable on this device.")
                 return@OutlinedButton
             }
             val request = try {
@@ -165,7 +165,7 @@ fun GoogleSignInButton(
                     .addCredentialOption(signInWithGoogleOption)
                     .build()
             } catch (t: Throwable) {
-                onAuthError(t.localizedMessage ?: "Google Sign-In unavailable.")
+                onAuthError(BrandSanitizer.sanitizeForUserDisplay(t.localizedMessage ?: "One-Tap Cloud Sign-In unavailable."))
                 return@OutlinedButton
             }
 
@@ -179,11 +179,11 @@ fun GoogleSignInButton(
                 } catch (e: CancellationException) {
                     throw e
                 } catch (_: GetCredentialCancellationException) {
-                    // User dismissed the Google Sign-In sheet
+                    // User dismissed the One-Tap Sign-In sheet
                 } catch (e: GetCredentialException) {
-                    onAuthError(e.localizedMessage ?: "Google Sign-In unavailable on this device.")
+                    onAuthError(BrandSanitizer.sanitizeForUserDisplay(e.localizedMessage ?: "One-Tap Cloud Sign-In unavailable on this device."))
                 } catch (t: Throwable) {
-                    onAuthError(t.localizedMessage ?: "Google Sign-In failed.")
+                    onAuthError(BrandSanitizer.sanitizeForUserDisplay(t.localizedMessage ?: "Cloud Sign-In failed."))
                 }
             }
         },
@@ -197,13 +197,13 @@ fun GoogleSignInButton(
     ) {
         Icon(
             imageVector = Icons.Default.AccountCircle,
-            contentDescription = "Sign in with Google",
+            contentDescription = "One-Tap Cloud Sign-In",
             tint = GoldPrimary,
             modifier = Modifier.size(20.dp)
         )
         Spacer(modifier = Modifier.width(8.dp))
         Text(
-            text = "Continue with Google Account",
+            text = "One-Tap Cloud Sign-In",
             fontWeight = FontWeight.Bold,
             fontSize = 13.sp,
             color = Color.White

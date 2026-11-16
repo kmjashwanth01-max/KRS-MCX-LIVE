@@ -103,8 +103,9 @@ dependencies {
     implementation(libs.androidx.credentials.play.services)
     implementation(libs.googleid)
 
-    // Direct HTTP networking for Vijay Bullion broadcast
+    // Direct HTTP networking for Vijay Bullion broadcast & JSON tool serialization
     implementation(libs.okhttp)
+    implementation(libs.kotlinx.serialization.json)
     implementation(libs.androidx.biometric)
     implementation(libs.androidx.appcompat)
 

@@ -2,6 +2,8 @@ package com.example.data
 
 import android.util.Log
 import com.example.model.*
+import com.example.util.BrandSanitizer
+import com.example.util.LocationServiceManager
 import com.google.firebase.Firebase
 import com.google.firebase.ai.ai
 import kotlinx.coroutines.CancellationException
@@ -18,14 +20,13 @@ import java.util.Locale
 private const val TAG = "JashxAiEngine"
 
 /**
- * JASHX AI Autonomous Intelligence Engine powered by Firebase AI Logic (Gemini 3.8 Flash),
- * Verified Encyclopedia Grounding (RAG), and 1-Second Live Vijay Bullion Telemetry.
+ * JASHX AI Autonomous Intelligence Engine powered by Firebase AI Logic,
+ * Real-Time 1-Second Bullion Telemetry, Live Location & Weather, and Live Web News Grounding.
  * Engineered for K.M. Jashwanth & KRS Gold & Silver.
  */
 class JashxAiEngine {
 
-    // Lazy initialization of Gemini 3.8 Flash via Firebase AI Logic per specification
-    private val geminiModel by lazy {
+    private val aiModel by lazy {
         Firebase.ai.generativeModel("gemini-3.8-flash")
     }
 
@@ -57,45 +58,71 @@ class JashxAiEngine {
         )
     }
 
+    fun buildLiveFeedSummaryForAi(
+        feed: VijayBullionFeed,
+        isMarketOpen: Boolean = feed.isBroadcastOpen,
+        marketStatusText: String = if (feed.isBroadcastOpen) "MARKET OPEN" else "MARKET CLOSED"
+    ): String {
+        val sanitized = sanitizeAndCorrectFeed(feed)
+        val gold1g24k = sanitized.goldBarRate10g / 10.0
+        val gold1g22k = gold1g24k * 0.916
+        val gold1g18k = gold1g24k * 0.750
+        val sovereign22k = gold1g22k * 8.0
+        val (istTime, istDate) = JashxKnowledgeDatabase.getIstTimeAndDate()
+        val loc = LocationServiceManager.locationState.value
+        val trendingFeeds = JashxKnowledgeDatabase.liveTrendingFeeds.value.take(6).joinToString(" | ") {
+            "[${it.category}] ${it.title} (${it.source})"
+        }
+
+        return BrandSanitizer.sanitizeForUserDisplay(
+            """
+            - Live Timestamp (IST): $istDate, $istTime
+            - Market Status: $marketStatusText (${if (isMarketOpen) "OPEN - 1s Live Streaming" else "CLOSED / Weekend or Off-Hours Sync"})
+            - Live Physical Gold 999 (10g): ₹${String.format("%,.0f", sanitized.goldBarRate10g)} (1g 24K: ₹${String.format("%,.0f", gold1g24k)}, 1g 22K: ₹${String.format("%,.0f", gold1g22k)}, 1g 18K: ₹${String.format("%,.0f", gold1g18k)}, 8g Sovereign 22K: ₹${String.format("%,.0f", sovereign22k)})
+            - Live Physical Silver (1kg): ₹${String.format("%,.0f", sanitized.silverBarRate1kg)} (1g: ₹${String.format("%,.2f", sanitized.silverBarRate1kg / 1000.0)})
+            - Live MCX Gold Futures: Bid ₹${String.format("%,.0f", sanitized.mcxGoldBid)} / Ask ₹${String.format("%,.0f", sanitized.mcxGoldAsk)} (High ₹${String.format("%,.0f", sanitized.mcxGoldHigh)}, Low ₹${String.format("%,.0f", sanitized.mcxGoldLow)})
+            - Live MCX Silver Futures: Bid ₹${String.format("%,.0f", sanitized.mcxSilverBid)} / Ask ₹${String.format("%,.0f", sanitized.mcxSilverAsk)} (High ₹${String.format("%,.0f", sanitized.mcxSilverHigh)}, Low ₹${String.format("%,.0f", sanitized.mcxSilverLow)})
+            - Live International Spot: Spot Gold $${String.format("%.2f", sanitized.spotGoldBid)}/oz | Spot Silver $${String.format("%.2f", sanitized.spotSilverBid)}/oz | USD/INR ₹${String.format("%.2f", sanitized.spotInrBid)}
+            - User Live Location & Weather: ${loc.city}, ${loc.state}, ${loc.country} | ${String.format("%.1f", loc.temperatureC)}°C (${loc.weatherCondition}, Wind ${String.format("%.1f", loc.windSpeedKmh)} km/h)
+            - Latest Live News Headlines: $trendingFeeds
+            """.trimIndent()
+        )
+    }
+
     private fun buildLiveContextSystemPrompt(
         feed: VijayBullionFeed,
         userQuestion: String,
         history: List<ChatMessage> = emptyList(),
-        verifiedEncyclopediaFact: String? = null
+        upToDateContext: String? = null
     ): String {
-        val (istTime, istDate) = JashxKnowledgeDatabase.getIstTimeAndDate()
-        val loc = com.example.util.LocationServiceManager.locationState.value
-        val trendingFeeds = JashxKnowledgeDatabase.liveTrendingFeeds.value.take(5).joinToString("; ") {
-            "[${it.category}] ${it.title}"
-        }
-        val recentHistoryText = history.takeLast(4).joinToString("\n") { msg ->
+        val liveSummary = buildLiveFeedSummaryForAi(feed)
+        val recentHistoryText = history.takeLast(6).joinToString("\n") { msg ->
             if (msg.isFromUser) "User: ${msg.text}" else "JASHX AI: ${msg.text}"
         }
         return """
-            You are JASHX AI (powered by Gemini 3.8 Flash), an authoritative, warm, human-speaking AI assistant.
-            
-            STRICT ACCURACY & QUALITY RULES:
-            1. Give ONLY 100% factually correct, verified, and directly relevant answers to the user's exact question. Never guess, fabricate, or hallucinate facts.
-            2. Answer ANY question the user asks—whether about Gold/Silver/MCX rates, science, mathematics, history, geography, medicine, coding, Tamil Nadu/Indian/World politics, or current affairs—with clear, accurate, well-structured facts.
-            3. Speak naturally and conversationally like a knowledgeable human expert.
-            4. If asked "who created you", "who made you", or "who is your founder", always include the exact phrase: "K.M. Jashwanth is the Founder of JASHX AI"
-            5. Only mention bullion prices when the user's question is about gold, silver, bullion, jewelry, MCX, or markets.
-            6. Live Verified 2026 Context:
-               - Date & Time (IST): $istDate, $istTime
-               - User's Live Detected Location & Weather: ${loc.city}, ${loc.state}, ${loc.country} | Temperature: ${String.format("%.1f", loc.temperatureC)}°C | Condition: ${loc.weatherCondition} | Wind: ${String.format("%.1f", loc.windSpeedKmh)} km/h
-               - Latest Live Trending Headlines: $trendingFeeds
-               - Tamil Nadu CM (2026): Thiru Joseph Vijay (Thalapathy Vijay), President of Tamilaga Vettri Kazhagam (TVK). Governor: R. N. Ravi.
-               - India (2026): PM Narendra Modi, President Droupadi Murmu, Finance Minister Nirmala Sitharaman, RBI Governor Sanjay Malhotra.
-               - World (2026): US President Donald J. Trump, UK PM Keir Starmer.
-               - Live KRS Bullion 1s Feed: Gold 999 (10g) ₹${String.format("%,.0f", feed.goldBarRate10g)}, Silver 1kg ₹${String.format("%,.0f", feed.silverBarRate1kg)}, MCX Gold ₹${String.format("%,.0f", feed.mcxGoldBid)}/₹${String.format("%,.0f", feed.mcxGoldAsk)}, MCX Silver ₹${String.format("%,.0f", feed.mcxSilverBid)}/₹${String.format("%,.0f", feed.mcxSilverAsk)}, Spot Gold $${String.format("%.2f", feed.spotGoldBid)}/oz, Spot Silver $${String.format("%.2f", feed.spotSilverBid)}/oz, USD/INR ₹${String.format("%.2f", feed.spotInrBid)}.
-            ${if (!verifiedEncyclopediaFact.isNullOrBlank()) "\nVerified Reference Fact:\n$verifiedEncyclopediaFact\n" else ""}
+            You are JASHX AI, an authoritative, warm, human-speaking real-time AI companion and bullion intelligence expert.
+
+            STRICT IDENTITY & BRANDING RULES (MANDATORY):
+            1. Your identity is exclusively "JASHX AI", created and founded by K.M. Jashwanth.
+            2. NEVER say the words "Gemini", "Google", "Alphabet", or any third-party AI brand/model name in any response.
+            3. If asked "who created you", "who made you", or "who is your founder", always include the exact phrase: "K.M. Jashwanth is the Founder of JASHX AI".
+            4. If asked "who are you", "who are u", "who r u", or "what is your name", ALWAYS introduce yourself as JASHX AI founded by K.M. Jashwanth—NEVER talk about a movie, TV series, or song titled "Who Are You".
+
+            ACCURACY & UP-TO-DATE CONTEXT RULES:
+            1. Always rely on the LIVE REAL-TIME TELEMETRY and UP-TO-DATE WEB GROUNDING provided below (prioritizing today's live IST date, live 1s bullion feed, and live refreshed headlines over older training data).
+            2. Give accurate, verified, and directly relevant answers to any question (bullion, jewelry, MCX, weather, Tamil Nadu/India/World news & politics, science, math, coding, general knowledge).
+            3. Speak naturally like a real human expert. Mention bullion rates only when the user asks about gold, silver, jewelry, MCX, or markets.
+
+            LIVE REAL-TIME TELEMETRY FEED:
+            $liveSummary
+            ${if (!upToDateContext.isNullOrBlank()) "\nUP-TO-DATE LIVE WEB & REFERENCE CONTEXT:\n$upToDateContext\n" else ""}
             ${if (recentHistoryText.isNotBlank()) "Recent Conversation:\n$recentHistoryText\n" else ""}
             User Question: $userQuestion
         """.trimIndent()
     }
 
     /**
-     * Generate real-time bullion market commentary and technical analysis using JASHX AI & Gemini 3.8 Flash.
+     * Generate real-time bullion market commentary and technical analysis using JASHX AI.
      */
     fun streamMarketAnalysis(
         feed: VijayBullionFeed,
@@ -105,7 +132,7 @@ class JashxAiEngine {
         val sanitized = sanitizeAndCorrectFeed(feed)
         val gsRatio = (sanitized.goldBarRate10g * 100.0) / sanitized.silverBarRate1kg
         val baselineAnalysis = buildString {
-            appendLine("💎 **JASHX AI Live Market Commentary (Gemini 3.8 Flash)**")
+            appendLine("💎 **JASHX AI Live Market Commentary**")
             appendLine("• **Feed**: KRS Bullion 1s Stream • ${if (isMarketOpen) "🟢 Market Open" else "🔴 Market Closed"}")
             appendLine("• **Gold 999 (10g)**: ₹${String.format("%,.0f", sanitized.goldBarRate10g)} | **Silver 1kg**: ₹${String.format("%,.0f", sanitized.silverBarRate1kg)}")
             appendLine("• **MCX Gold**: Bid ₹${String.format("%,.0f", sanitized.mcxGoldBid)} / Ask ₹${String.format("%,.0f", sanitized.mcxGoldAsk)}")
@@ -116,28 +143,37 @@ class JashxAiEngine {
         emit(baselineAnalysis)
 
         try {
+            val liveNews = JashxKnowledgeDatabase.liveTrendingFeeds.value
+                .filter { it.category == "BULLION" || it.category == "WORLD" }
+                .take(3)
+                .joinToString("; ") { it.title }
             val prompt = """
-                Provide a concise 3-bullet institutional market outlook for Indian Gold & Silver traders based on these live bullion rates:
+                You are JASHX AI (never mention Gemini or Google).
+                Provide a concise 3-bullet institutional market outlook for Indian Gold & Silver traders based on these real-time rates:
+                Status: ${if (isMarketOpen) "OPEN" else "CLOSED"} ($sessionText)
                 Gold 999 (10g): ₹${String.format("%,.0f", sanitized.goldBarRate10g)}, Silver 1kg: ₹${String.format("%,.0f", sanitized.silverBarRate1kg)},
                 MCX Gold: ₹${String.format("%,.0f", sanitized.mcxGoldBid)}, MCX Silver: ₹${String.format("%,.0f", sanitized.mcxSilverBid)},
                 Spot Gold: $${String.format("%.2f", sanitized.spotGoldBid)}/oz, Spot Silver: $${String.format("%.2f", sanitized.spotSilverBid)}/oz, USD/INR: ₹${String.format("%.2f", sanitized.spotInrBid)}.
+                Live Market Headlines: $liveNews
                 Keep it sharp, factually grounded, and under 80 words.
             """.trimIndent()
 
-            val accumulated = StringBuilder(baselineAnalysis).append("\n🤖 **Live Gemini 3.8 Flash Macro Signal:**\n")
+            val accumulated = StringBuilder(baselineAnalysis).append("\n🤖 **Live JASHX AI Macro Signal:**\n")
+            val rawSignal = StringBuilder()
             withTimeout(60_000L) {
-                geminiModel.generateContentStream(prompt).collect { chunk ->
+                aiModel.generateContentStream(prompt).collect { chunk ->
                     val chunkText = chunk.text.orEmpty()
                     if (chunkText.isNotEmpty()) {
-                        accumulated.append(chunkText)
-                        emit(accumulated.toString())
+                        rawSignal.append(chunkText)
+                        val cleanCombined = accumulated.toString() + BrandSanitizer.sanitizeForUserDisplay(rawSignal.toString())
+                        emit(cleanCombined)
                     }
                 }
             }
-        } catch (e: kotlinx.coroutines.CancellationException) {
+        } catch (e: CancellationException) {
             throw e
         } catch (t: Throwable) {
-            Log.w(TAG, "Gemini stream supplemental commentary skipped: ${t.message}")
+            Log.w(TAG, "AI stream supplemental commentary skipped: ${t.message}")
         }
     }.flowOn(Dispatchers.IO)
 
@@ -148,8 +184,8 @@ class JashxAiEngine {
 
     /**
      * Multi-turn chat with JASHX AI:
-     * 1. Sub-10ms verified answer for deterministic math, creator, location/weather, bullion weights/rates, politics, and verified facts.
-     * 2. Retrieval-Augmented Generation (RAG): fetches live Wikipedia / DuckDuckGo / Google News grounding and streams Gemini 3.8 Flash (`gemini-3.8-flash`) with 60s timeout so every question gets a 100% accurate answer.
+     * 1. Sub-10ms verified answer for deterministic math, creator, location/weather, bullion weights/rates, and time/date.
+     * 2. Live Web & Real-Time News Feed Retrieval + Streaming JASHX AI synthesis with 60s timeout so every question gets an up-to-date, accurate answer.
      */
     fun chatWithJashxAi(
         history: List<ChatMessage>,
@@ -157,52 +193,84 @@ class JashxAiEngine {
         feed: VijayBullionFeed
     ): Flow<String> = flow {
         val sanitized = sanitizeAndCorrectFeed(feed)
+        val normalized = userMessage.lowercase().trim()
+        val isNewsOrFeedRequest = normalized.contains("latest feed") ||
+            normalized.contains("live feed") ||
+            normalized.contains("trending feed") ||
+            normalized.contains("latest news") ||
+            normalized.contains("today news") ||
+            normalized.contains("current affairs") ||
+            normalized.contains("what is happening") ||
+            normalized == "news" ||
+            normalized == "feeds"
 
-        // 1. Sub-10ms verified direct match
-        val instantFeedMatch = JashxKnowledgeDatabase.matchDirectRelevantFeed(userMessage, sanitized)
-        if (instantFeedMatch != null) {
-            emit(instantFeedMatch)
+        // If the user specifically asks for live feeds/news, refresh RSS immediately before responding!
+        if (isNewsOrFeedRequest) {
+            val freshHeadlines = JashxKnowledgeDatabase.refreshAndGetLiveHeadlines(limitPerTopic = 2)
+            val (currentTimeIst, _) = JashxKnowledgeDatabase.getIstTimeAndDate()
+            val locState = LocationServiceManager.locationState.value
+            val feedLines = freshHeadlines.take(6).joinToString("\n") { item ->
+                "• [${item.category}]: ${item.title} (${item.source})"
+            }
+            val liveSnapshot = BrandSanitizer.sanitizeForUserDisplay(
+                """
+                📰 Here are your Latest Real-Time Feeds ($currentTimeIst):
+                • [LIVE BULLION]: Physical Gold 999 (10g) is at ₹${String.format("%,.0f", sanitized.goldBarRate10g)}, Silver 1kg is at ₹${String.format("%,.0f", sanitized.silverBarRate1kg)}, and Spot Gold is $${String.format("%.2f", sanitized.spotGoldBid)}/oz.
+                • [LOCAL WEATHER]: ${locState.city}, ${locState.state} is currently ${String.format("%.1f", locState.temperatureC)}°C with ${locState.weatherCondition}.
+                $feedLines
+                """.trimIndent()
+            )
+            emit(liveSnapshot)
             return@flow
         }
 
-        // 2. Fetch live verified encyclopedia / news context first for RAG grounding & instant fallback
+        // 1. Sub-10ms verified direct match (math, creator, bullion rates, location/weather, deterministic facts)
+        val instantFeedMatch = JashxKnowledgeDatabase.matchDirectRelevantFeed(userMessage, sanitized)
+        if (instantFeedMatch != null) {
+            emit(BrandSanitizer.sanitizeForUserDisplay(instantFeedMatch))
+            return@flow
+        }
+
+        // 2. Fetch live up-to-date web, news, Wikipedia & DuckDuckGo context first
+        val upToDateContext = JashxKnowledgeDatabase.fetchUpToDateContext(userMessage)
         val verifiedFact = JashxKnowledgeDatabase.fetchLiveEncyclopediaAnswer(userMessage)
+            ?.let { BrandSanitizer.sanitizeForUserDisplay(it) }
         if (!verifiedFact.isNullOrBlank()) {
             emit(verifiedFact)
         }
 
-        // 3. Stream comprehensive, fact-checked response via Gemini 3.8 Flash
+        // 3. Stream comprehensive, up-to-date response via Firebase AI Logic
         val prompt = buildLiveContextSystemPrompt(
             feed = sanitized,
             userQuestion = userMessage,
             history = history,
-            verifiedEncyclopediaFact = verifiedFact
+            upToDateContext = upToDateContext
         )
         val streamedText = StringBuilder()
         try {
             withTimeout(60_000L) {
-                geminiModel.generateContentStream(prompt).collect { chunk ->
+                aiModel.generateContentStream(prompt).collect { chunk ->
                     val part = chunk.text.orEmpty()
                     if (part.isNotEmpty()) {
                         streamedText.append(part)
-                        emit(streamedText.toString().trim())
+                        emit(BrandSanitizer.sanitizeForUserDisplay(streamedText.toString().trim()))
                     }
                 }
             }
             if (streamedText.isBlank()) {
-                emit(verifiedFact ?: JashxKnowledgeDatabase.queryKnowledgeBase(userMessage, sanitized))
+                emit(BrandSanitizer.sanitizeForUserDisplay(verifiedFact ?: JashxKnowledgeDatabase.queryKnowledgeBase(userMessage, sanitized)))
             }
         } catch (e: TimeoutCancellationException) {
-            Log.e(TAG, "Gemini generation timed out after 60s", e)
+            Log.e(TAG, "AI generation timed out after 60s", e)
             if (streamedText.isBlank()) {
-                emit(verifiedFact ?: JashxKnowledgeDatabase.queryKnowledgeBase(userMessage, sanitized))
+                emit(BrandSanitizer.sanitizeForUserDisplay(verifiedFact ?: JashxKnowledgeDatabase.queryKnowledgeBase(userMessage, sanitized)))
             }
         } catch (e: CancellationException) {
             throw e
         } catch (t: Throwable) {
-            Log.e(TAG, "Firebase AI generation failed, using verified encyclopedia answer", t)
+            Log.e(TAG, "Firebase AI generation failed, using verified live context answer", t)
             if (streamedText.isBlank()) {
-                emit(verifiedFact ?: JashxKnowledgeDatabase.queryKnowledgeBase(userMessage, sanitized))
+                emit(BrandSanitizer.sanitizeForUserDisplay(verifiedFact ?: JashxKnowledgeDatabase.queryKnowledgeBase(userMessage, sanitized)))
             }
         }
     }.flowOn(Dispatchers.IO)

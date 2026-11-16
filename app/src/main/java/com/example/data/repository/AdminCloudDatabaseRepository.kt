@@ -1462,7 +1462,7 @@ class AdminCloudDatabaseRepository(
         targetUsername: String = ""
     ): Result<Unit> = runCatching {
         val adminUid = auth.currentUser?.uid
-            ?: throw IllegalStateException("Admin must be signed in with Google before publishing app updates.")
+            ?: throw IllegalStateException("Admin must be signed in with a Cloud Account before publishing app updates.")
         ensureAdminDocIfEligible()
         val configDocRef = db.collection("app_config").document("app_update")
         val cleanVersionCode = latestVersionCode.coerceIn(1L, 1_000_000L)

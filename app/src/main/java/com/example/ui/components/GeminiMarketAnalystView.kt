@@ -1,16 +1,21 @@
 package com.example.ui.components
 
-import android.app.Activity
+import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.content.Intent
-import android.speech.RecognizerIntent
+import android.content.pm.PackageManager
 import android.speech.tts.TextToSpeech
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -29,6 +34,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -37,12 +43,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import com.example.R
 import com.example.data.JashxKnowledgeDatabase
+import com.example.data.JashxVoicePersona
+import com.example.data.LiveVoiceStatus
+import com.example.data.LiveVoiceUiState
 import com.example.model.ChatMessage
 import com.example.model.CommodityContract
 import com.example.model.MarketPrediction
 import com.example.ui.theme.*
+import com.example.util.BrandSanitizer
 import java.util.Locale
 
 @Composable
@@ -59,6 +70,11 @@ fun JashxAiMarketAnalystView(
     errorMessage: String?,
     prediction: MarketPrediction? = null,
     chatMessages: List<ChatMessage> = emptyList(),
+    liveVoiceState: LiveVoiceUiState = LiveVoiceUiState(),
+    onStartLiveVoice: () -> Unit = {},
+    onStopLiveVoice: () -> Unit = {},
+    onSelectVoicePersona: (JashxVoicePersona) -> Unit = {},
+    onClearVoiceError: () -> Unit = {},
     onGenerateAnalysis: () -> Unit,
     onRefreshPrediction: () -> Unit = {},
     onAskQuestion: (String) -> Unit,
@@ -98,7 +114,7 @@ fun JashxAiMarketAnalystView(
     }
 
     fun formatCleanDisplay(rawText: String): String {
-        return rawText
+        val cleaned = rawText
             .replace("(`kmjashwanth01@gmail.com`)", "")
             .replace("(kmjashwanth01@gmail.com)", "")
             .replace("kmjashwanth01@gmail.com", "")
@@ -107,6 +123,7 @@ fun JashxAiMarketAnalystView(
             .replace(Regex("""\s+\."""), ".")
             .replace(Regex("""\s+,"""), ",")
             .trim()
+        return BrandSanitizer.sanitizeForUserDisplay(cleaned)
     }
 
     fun speakTextLikeHuman(rawText: String) {
@@ -131,16 +148,36 @@ fun JashxAiMarketAnalystView(
         JashxKnowledgeDatabase.refreshLiveFeedsAsync(force = false)
     }
 
-    // Voice Input Launcher (Talk to JASHX AI like a human)
-    val speechRecognizerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            val matches = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
-            val spokenText = matches?.firstOrNull()?.trim()
-            if (!spokenText.isNullOrBlank()) {
-                onAskQuestion(spokenText)
-            }
+    var micPermissionDeniedHint by remember { mutableStateOf(false) }
+
+    val recordAudioPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            micPermissionDeniedHint = false
+            stopSpeaking()
+            onStartLiveVoice()
+        } else {
+            micPermissionDeniedHint = true
+            Toast.makeText(
+                context,
+                "Microphone permission is required for JASHX AI live voice.",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    fun launchLiveVoiceWithMicCheck() {
+        val hasMic = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+        if (hasMic) {
+            micPermissionDeniedHint = false
+            stopSpeaking()
+            onStartLiveVoice()
+        } else {
+            recordAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
         }
     }
 
@@ -345,6 +382,30 @@ fun JashxAiMarketAnalystView(
                 }
             }
         }
+
+        // 0.5 JASHX AI Real-Time Bidirectional Live Voice Console
+        JashxLiveVoiceConsoleCard(
+            liveVoiceState = liveVoiceState,
+            gold999 = gold999,
+            silver1kg = silver1kg,
+            isMarketOpen = isMarketOpen,
+            micPermissionDeniedHint = micPermissionDeniedHint,
+            onToggleLiveVoice = {
+                val active = liveVoiceState.status == LiveVoiceStatus.CONNECTING ||
+                    liveVoiceState.status == LiveVoiceStatus.LISTENING ||
+                    liveVoiceState.status == LiveVoiceStatus.SPEAKING
+                if (active) {
+                    onStopLiveVoice()
+                } else {
+                    launchLiveVoiceWithMicCheck()
+                }
+            },
+            onSelectVoicePersona = onSelectVoicePersona,
+            onClearVoiceError = {
+                micPermissionDeniedHint = false
+                onClearVoiceError()
+            }
+        )
 
         // 1. Live Market Predictions Card
         Card(
@@ -634,7 +695,7 @@ fun JashxAiMarketAnalystView(
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "Talk or type • Live 2026 Feeds • Natural Human Voice",
+                                text = "Real-Time Voice & Chat • Live 1s Feed • Up-to-Date Web",
                                 color = GoldLight,
                                 fontSize = 9.sp
                             )
@@ -834,28 +895,27 @@ fun JashxAiMarketAnalystView(
                             .testTag("jashx_chat_input")
                     )
 
-                    // Voice Microphone Button (Speak to JASHX AI)
+                    // Real-Time Voice Toggle Button (Bidirectional JASHX AI Voice)
+                    val isVoiceChannelActive = liveVoiceState.status == LiveVoiceStatus.CONNECTING ||
+                        liveVoiceState.status == LiveVoiceStatus.LISTENING ||
+                        liveVoiceState.status == LiveVoiceStatus.SPEAKING
                     IconButton(
                         onClick = {
-                            try {
-                                stopSpeaking()
-                                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-IN")
-                                    putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak to JASHX AI...")
-                                }
-                                speechRecognizerLauncher.launch(intent)
-                            } catch (_: Throwable) {
-                                Toast.makeText(context, "Voice input not supported on this device", Toast.LENGTH_SHORT).show()
+                            if (isVoiceChannelActive) {
+                                onStopLiveVoice()
+                            } else {
+                                launchLiveVoiceWithMicCheck()
                             }
                         },
-                        modifier = Modifier.size(36.dp).testTag("jashx_voice_mic_button")
+                        modifier = Modifier
+                            .size(48.dp)
+                            .testTag("jashx_voice_mic_button")
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Mic,
-                            contentDescription = "Speak to JASHX AI",
-                            tint = GoldPrimary,
-                            modifier = Modifier.size(18.dp)
+                            imageVector = if (isVoiceChannelActive) Icons.Default.StopCircle else Icons.Default.Mic,
+                            contentDescription = if (isVoiceChannelActive) "End Live Voice" else "Talk Live to JASHX AI",
+                            tint = if (isVoiceChannelActive) MarketRed else GoldPrimary,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
 
@@ -951,7 +1011,7 @@ fun JashxAiMarketAnalystView(
 
                     if (errorMessage != null) {
                         Text(
-                            text = errorMessage,
+                            text = BrandSanitizer.sanitizeForUserDisplay(errorMessage),
                             color = Color(0xFFFF5252),
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.Medium
@@ -964,6 +1024,389 @@ fun JashxAiMarketAnalystView(
                             lineHeight = 18.sp
                         )
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun JashxLiveVoiceConsoleCard(
+    liveVoiceState: LiveVoiceUiState,
+    gold999: CommodityContract?,
+    silver1kg: CommodityContract?,
+    isMarketOpen: Boolean,
+    micPermissionDeniedHint: Boolean,
+    onToggleLiveVoice: () -> Unit,
+    onSelectVoicePersona: (JashxVoicePersona) -> Unit,
+    onClearVoiceError: () -> Unit
+) {
+    val isActive = liveVoiceState.status == LiveVoiceStatus.CONNECTING ||
+        liveVoiceState.status == LiveVoiceStatus.LISTENING ||
+        liveVoiceState.status == LiveVoiceStatus.SPEAKING
+
+    val pulseTransition = rememberInfiniteTransition(label = "jashx_voice_pulse")
+    val pulseScale by pulseTransition.animateFloat(
+        initialValue = 1.0f,
+        targetValue = if (liveVoiceState.status == LiveVoiceStatus.SPEAKING) 1.24f else if (isActive) 1.15f else 1.0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 750, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulse_scale"
+    )
+
+    val statusColor = when (liveVoiceState.status) {
+        LiveVoiceStatus.IDLE -> GoldPrimary
+        LiveVoiceStatus.CONNECTING -> GoldLight
+        LiveVoiceStatus.LISTENING -> MarketGreen
+        LiveVoiceStatus.SPEAKING -> Color(0xFF38BDF8)
+        LiveVoiceStatus.ERROR -> MarketRed
+    }
+
+    val statusBadgeText = when (liveVoiceState.status) {
+        LiveVoiceStatus.IDLE -> "VOICE READY"
+        LiveVoiceStatus.CONNECTING -> "CONNECTING"
+        LiveVoiceStatus.LISTENING -> "LISTENING LIVE"
+        LiveVoiceStatus.SPEAKING -> "JASHX SPEAKING"
+        LiveVoiceStatus.ERROR -> "ATTENTION"
+    }
+
+    Card(
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = TitaniumDarkSurface),
+        border = androidx.compose.foundation.BorderStroke(
+            width = if (isActive) 1.6.dp else 1.1.dp,
+            color = if (isActive) statusColor else GoldPrimary.copy(alpha = 0.65f)
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("jashx_live_voice_console")
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // Header Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier.size(44.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .scale(if (isActive) pulseScale else 1f)
+                                .clip(CircleShape)
+                                .background(statusColor.copy(alpha = if (isActive) 0.25f else 0.14f))
+                        )
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .background(TitaniumCardBg)
+                                .border(1.2.dp, statusColor, CircleShape)
+                        ) {
+                            Icon(
+                                imageVector = if (liveVoiceState.status == LiveVoiceStatus.SPEAKING) {
+                                    Icons.Default.GraphicEq
+                                } else {
+                                    Icons.Default.Mic
+                                },
+                                contentDescription = "JASHX AI Live Voice",
+                                tint = statusColor,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "JASHX AI Live Voice",
+                            color = TextWhitePrimary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                        Text(
+                            text = "Real-time two-way conversation • Interrupt anytime",
+                            color = GoldLight,
+                            fontSize = 10.sp
+                        )
+                    }
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = statusColor.copy(alpha = 0.16f),
+                    border = androidx.compose.foundation.BorderStroke(0.8.dp, statusColor)
+                ) {
+                    Text(
+                        text = statusBadgeText,
+                        color = statusColor,
+                        fontSize = 9.5.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
+
+            // Live 1s Bullion Telemetry Attachment Strip
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = TitaniumCardBg,
+                border = androidx.compose.foundation.BorderStroke(0.6.dp, TitaniumBorder),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(7.dp)
+                                .clip(CircleShape)
+                                .background(if (isMarketOpen) MarketGreen else GoldPrimary)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        val goldRateText = gold999?.ltp?.let { "₹${String.format("%,.0f", it)}" } ?: "Syncing"
+                        val silverRateText = silver1kg?.ltp?.let { "₹${String.format("%,.0f", it)}" } ?: "Syncing"
+                        Text(
+                            text = "1s Feed Linked • Gold $goldRateText • Silver $silverRateText",
+                            color = TextWhitePrimary,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    if (liveVoiceState.lastTelemetrySyncTime.isNotBlank()) {
+                        Text(
+                            text = "Live",
+                            color = MarketGreen,
+                            fontSize = 9.5.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+
+            // Voice Persona Selector Chips
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                items(JashxVoicePersona.entries) { persona ->
+                    val isSelected = persona == liveVoiceState.selectedPersona
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isSelected) GoldPrimary.copy(alpha = 0.2f) else TitaniumCardSurface,
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            if (isSelected) GoldPrimary else TitaniumBorder
+                        ),
+                        modifier = Modifier
+                            .heightIn(min = 40.dp)
+                            .clickable { onSelectVoicePersona(persona) }
+                            .testTag("voice_persona_${persona.name.lowercase()}")
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Text(
+                                text = persona.displayName,
+                                color = if (isSelected) GoldPrimary else TextWhitePrimary,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = persona.subtitle,
+                                color = if (isSelected) GoldLight else TextDimTertiary,
+                                fontSize = 9.sp
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Live Spoken Transcript & Tool Lookup Indicator
+            AnimatedVisibility(
+                visible = isActive ||
+                    liveVoiceState.liveUserTranscript.isNotBlank() ||
+                    liveVoiceState.liveAiTranscript.isNotBlank() ||
+                    !liveVoiceState.activeToolCallLabel.isNullOrBlank()
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = TitaniumCardBg,
+                    border = androidx.compose.foundation.BorderStroke(0.8.dp, statusColor.copy(alpha = 0.5f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        val toolLabel = liveVoiceState.activeToolCallLabel
+                        if (!toolLabel.isNullOrBlank()) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                CircularProgressIndicator(
+                                    strokeWidth = 1.5.dp,
+                                    color = GoldPrimary,
+                                    modifier = Modifier.size(11.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = BrandSanitizer.sanitizeForUserDisplay(toolLabel),
+                                    color = GoldLight,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+
+                        if (isActive && liveVoiceState.status != LiveVoiceStatus.CONNECTING) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    text = if (liveVoiceState.status == LiveVoiceStatus.SPEAKING) "AI Speaking • Interrupt anytime" else "Mic Active",
+                                    color = if (liveVoiceState.status == LiveVoiceStatus.SPEAKING) Color(0xFF38BDF8) else MarketGreen,
+                                    fontSize = 9.5.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                LinearProgressIndicator(
+                                    progress = { liveVoiceState.micLevel.coerceIn(0.06f, 1f) },
+                                    color = if (liveVoiceState.micLevel > 0.12f) MarketGreen else GoldPrimary,
+                                    trackColor = TitaniumCardSurface,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(5.dp)
+                                        .clip(RoundedCornerShape(4.dp))
+                                )
+                            }
+                        }
+
+                        if (liveVoiceState.liveUserTranscript.isNotBlank()) {
+                            Text(
+                                text = "You: ${BrandSanitizer.sanitizeForUserDisplay(liveVoiceState.liveUserTranscript)}",
+                                color = GoldLight,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                lineHeight = 15.sp
+                            )
+                        }
+
+                        if (liveVoiceState.liveAiTranscript.isNotBlank()) {
+                            Text(
+                                text = "JASHX AI: ${BrandSanitizer.sanitizeForUserDisplay(liveVoiceState.liveAiTranscript)}",
+                                color = TextWhitePrimary,
+                                fontSize = 11.5.sp,
+                                lineHeight = 16.sp
+                            )
+                        } else if (isActive) {
+                            Text(
+                                text = if (liveVoiceState.status == LiveVoiceStatus.CONNECTING) {
+                                    "Opening secure low-latency audio channel & syncing latest live feeds..."
+                                } else {
+                                    "Listening now — ask about gold/silver rates, today's latest news, weather, or anything!"
+                                },
+                                color = TextMutedSecondary,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Clean Error / Mic Permission Notice
+            val visibleError = when {
+                micPermissionDeniedHint -> "Microphone permission is required for JASHX AI live voice."
+                !liveVoiceState.errorMessage.isNullOrBlank() -> BrandSanitizer.sanitizeForUserDisplay(liveVoiceState.errorMessage)
+                else -> null
+            }
+            if (!visibleError.isNullOrBlank()) {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = MarketRed.copy(alpha = 0.14f),
+                    border = androidx.compose.foundation.BorderStroke(0.8.dp, MarketRed.copy(alpha = 0.6f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = visibleError,
+                            color = Color(0xFFFF8A80),
+                            fontSize = 11.sp,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(onClick = onClearVoiceError) {
+                            Text("Dismiss", color = GoldLight, fontSize = 10.5.sp)
+                        }
+                    }
+                }
+            }
+
+            // Primary Start / End Live Voice Action Button (>= 48.dp touch target)
+            Button(
+                onClick = onToggleLiveVoice,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (isActive) MarketRed else GoldPrimary,
+                    contentColor = if (isActive) Color.White else Color.Black
+                ),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 50.dp)
+                    .testTag("jashx_live_voice_button")
+            ) {
+                if (liveVoiceState.status == LiveVoiceStatus.CONNECTING) {
+                    CircularProgressIndicator(
+                        strokeWidth = 2.dp,
+                        color = Color.White,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Connecting Live Voice... (Tap to Cancel)",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.5.sp
+                    )
+                } else {
+                    Icon(
+                        imageVector = if (isActive) Icons.Default.CallEnd else Icons.Default.RecordVoiceOver,
+                        contentDescription = if (isActive) "End Live Voice" else "Start Live Voice",
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (isActive) {
+                            "End Live Voice Session"
+                        } else {
+                            "Talk Live with JASHX AI (${liveVoiceState.selectedPersona.displayName})"
+                        },
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 13.sp
+                    )
                 }
             }
         }
@@ -985,6 +1428,11 @@ fun GeminiMarketAnalystView(
     errorMessage: String?,
     prediction: MarketPrediction? = null,
     chatMessages: List<ChatMessage> = emptyList(),
+    liveVoiceState: LiveVoiceUiState = LiveVoiceUiState(),
+    onStartLiveVoice: () -> Unit = {},
+    onStopLiveVoice: () -> Unit = {},
+    onSelectVoicePersona: (JashxVoicePersona) -> Unit = {},
+    onClearVoiceError: () -> Unit = {},
     onGenerateAnalysis: () -> Unit,
     onRefreshPrediction: () -> Unit = {},
     onAskQuestion: (String) -> Unit,
@@ -1003,6 +1451,11 @@ fun GeminiMarketAnalystView(
         errorMessage = errorMessage,
         prediction = prediction,
         chatMessages = chatMessages,
+        liveVoiceState = liveVoiceState,
+        onStartLiveVoice = onStartLiveVoice,
+        onStopLiveVoice = onStopLiveVoice,
+        onSelectVoicePersona = onSelectVoicePersona,
+        onClearVoiceError = onClearVoiceError,
         onGenerateAnalysis = onGenerateAnalysis,
         onRefreshPrediction = onRefreshPrediction,
         onAskQuestion = onAskQuestion,

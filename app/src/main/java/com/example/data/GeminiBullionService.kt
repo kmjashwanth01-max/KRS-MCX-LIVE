@@ -176,7 +176,7 @@ class GeminiBullionService {
         val currentIstDate = dateFormat.format(now)
 
         val prompt = buildString {
-            appendLine("You are the advanced KRS AI Assistant powered by Gemini 3.8 Flash, built by K.M. Jashwanth.")
+            appendLine("You are JASHX AI, the advanced intelligent assistant built by K.M. Jashwanth. Never mention Google or Gemini.")
             appendLine("You can answer ANY question the user asks! Whether it is about the time, weather, daily life, general knowledge, math, science, current events, or Indian Bullion & MCX markets.")
             appendLine()
             appendLine("Live Reference Information:")
@@ -349,7 +349,7 @@ class GeminiBullionService {
         val timeStr = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.ENGLISH).format(java.util.Date())
 
         val insight = buildString {
-            append("Gemini model signals ")
+            append("JASHX AI model signals ")
             append(bias.label)
             append(" momentum for $name. Price is trading at ")
             if (close >= pivot) append("a premium above Pivot (₹${String.format("%,.0f", pivot)})") else append("below Pivot (₹${String.format("%,.0f", pivot)})")
@@ -398,7 +398,7 @@ class GeminiBullionService {
         val currentIstDate = dateFormat.format(now)
 
         val prompt = buildString {
-            appendLine("You are the advanced KRS AI Assistant powered by Gemini 3.8 Flash, built by K.M. Jashwanth.")
+            appendLine("You are JASHX AI, the advanced intelligent assistant built by K.M. Jashwanth. Never mention Google or Gemini.")
             appendLine("You can answer ANY question the user asks! Whether it is about the time, weather, general knowledge, daily life, math, science, current events, or precious metals and MCX commodities.")
             appendLine()
             appendLine("Live Reference Information:")
