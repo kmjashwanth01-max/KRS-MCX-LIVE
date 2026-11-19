@@ -70,6 +70,8 @@ fun SettingsView(
         targetUsername: String,
         alsoBroadcastAnnouncement: Boolean
     ) -> Unit = { _, _, _, _, _, _, _, _ -> },
+    onDeleteAppUpdate: (CloudAppUpdateRecord) -> Unit = {},
+    onDeleteAllReleasedUpdates: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -78,6 +80,8 @@ fun SettingsView(
 
     var showCreateAccountDialog by remember { mutableStateOf(false) }
     var accountToDelete by remember { mutableStateOf<UserProfile?>(null) }
+    var releaseToDelete by remember { mutableStateOf<CloudAppUpdateRecord?>(null) }
+    var showDeleteAllUpdatesConfirm by remember { mutableStateOf(false) }
     var showGitHubPublishDialog by remember { mutableStateOf(false) }
 
     var googleSignedInEmail by remember {
@@ -89,6 +93,7 @@ fun SettingsView(
     val isLocalAdmin = (currentUser?.username?.equals("jashwanth", ignoreCase = true) == true) ||
         (currentUser?.email?.trim()?.lowercase() in AdminCloudDatabaseRepository.ADMIN_EMAILS) ||
         (currentUser?.role?.contains("Administrator", ignoreCase = true) == true)
+    val isAdminAccount = isGoogleAdmin || isLocalAdmin
 
     var versionCodeInput by remember { mutableStateOf((maxOf(BuildConfig.VERSION_CODE.toLong() + 1L, appUpdateConfig?.latestVersionCode ?: 2L)).toString()) }
     var versionNameInput by remember { mutableStateOf(appUpdateConfig?.latestVersionName?.takeIf { it != BuildConfig.VERSION_NAME } ?: "1.1") }
@@ -692,6 +697,33 @@ fun SettingsView(
                                                 modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
                                             )
                                         }
+                                        // Delete Update option strictly restricted to Admin account
+                                        if (isAdminAccount && (rel.id != "v1_0_initial" || rel.versionCode > 1L || rel.isUpdateEnabled)) {
+                                            IconButton(
+                                                onClick = {
+                                                    if (!isGoogleAdmin) {
+                                                        Toast.makeText(
+                                                            context,
+                                                            "Please sign in with the Admin Cloud Account below first to delete updates.",
+                                                            Toast.LENGTH_LONG
+                                                        ).show()
+                                                    } else {
+                                                        releaseToDelete = rel
+                                                    }
+                                                },
+                                                enabled = !isPublishingUpdate,
+                                                modifier = Modifier
+                                                    .size(48.dp)
+                                                    .testTag("btn_delete_update_${rel.id}")
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Delete,
+                                                    contentDescription = "Delete update v${rel.versionName}",
+                                                    tint = MarketRed,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                                 if (rel.releaseNotes.isNotBlank()) {
@@ -733,7 +765,7 @@ fun SettingsView(
         }
 
         // 5d. ADMIN CLOUD UPDATE PUBLISHER (STORES IN `/updates` COLLECTION + NOTIFIES USERS)
-        if (isGoogleAdmin || isLocalAdmin) {
+        if (isAdminAccount) {
             Card(
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(containerColor = TitaniumDarkSurface),
@@ -928,7 +960,9 @@ fun SettingsView(
                     if (!updatePublishMessage.isNullOrBlank()) {
                         Text(
                             text = updatePublishMessage,
-                            color = if (updatePublishMessage.startsWith("Publish failed", ignoreCase = true)) {
+                            color = if (updatePublishMessage.startsWith("Publish failed", ignoreCase = true) ||
+                                updatePublishMessage.startsWith("Delete failed", ignoreCase = true)
+                            ) {
                                 Color(0xFFFF8A80)
                             } else {
                                 MarketGreen
@@ -966,11 +1000,42 @@ fun SettingsView(
                         if (isPublishingUpdate) {
                             CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.Black)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Saving to /updates...", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text("Updating /updates...", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         } else {
                             Icon(Icons.Default.CloudUpload, contentDescription = null, modifier = Modifier.size(17.dp))
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("Save & Push Update to Database", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+                        }
+                    }
+
+                    val hasDeletableReleasedUpdates = (appUpdateConfig?.isUpdateEnabled == true) ||
+                        updatesHistory.any { it.id != "v1_0_initial" || it.versionCode > 1L || it.isUpdateEnabled }
+
+                    if (hasDeletableReleasedUpdates) {
+                        OutlinedButton(
+                            onClick = {
+                                if (!isGoogleAdmin) {
+                                    Toast.makeText(
+                                        context,
+                                        "Please sign in with the Admin Cloud Account above first to delete released updates.",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                } else {
+                                    showDeleteAllUpdatesConfirm = true
+                                }
+                            },
+                            enabled = !isPublishingUpdate,
+                            shape = RoundedCornerShape(10.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.2.dp, MarketRed),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFF8A80)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                                .testTag("btn_delete_active_update")
+                        ) {
+                            Icon(Icons.Default.DeleteForever, contentDescription = "Delete Released Updates", modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Delete Released Update(s)", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
                         }
                     }
 
@@ -1267,6 +1332,79 @@ fun SettingsView(
             dismissButton = {
                 OutlinedButton(onClick = { showGitHubPublishDialog = false }) {
                     Text("Close", color = Color.LightGray)
+                }
+            },
+            containerColor = TitaniumDarkSurface
+        )
+    }
+
+    // ADMIN-ONLY CONFIRM DELETE SINGLE UPDATE DIALOG
+    val deletingRelease = releaseToDelete
+    if (isAdminAccount && deletingRelease != null) {
+        AlertDialog(
+            onDismissRequest = { releaseToDelete = null },
+            title = {
+                Text("Delete Released Update?", fontWeight = FontWeight.Bold, color = Color(0xFFFF8A80))
+            },
+            text = {
+                Text(
+                    text = "Remove release v${deletingRelease.versionName} (Build ${deletingRelease.versionCode}) from Cloud Database (/updates) and clear its update popup & announcement?",
+                    color = Color.White,
+                    fontSize = 12.5.sp,
+                    lineHeight = 18.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onDeleteAppUpdate(deletingRelease)
+                        releaseToDelete = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MarketRed, contentColor = Color.White),
+                    modifier = Modifier.testTag("btn_confirm_delete_single_update")
+                ) {
+                    Text("Delete Update", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { releaseToDelete = null }) {
+                    Text("Cancel", color = Color.LightGray)
+                }
+            },
+            containerColor = TitaniumDarkSurface
+        )
+    }
+
+    // ADMIN-ONLY CONFIRM DELETE ALL RELEASED UPDATES DIALOG
+    if (isAdminAccount && showDeleteAllUpdatesConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteAllUpdatesConfirm = false },
+            title = {
+                Text("Delete Released Update(s)?", fontWeight = FontWeight.Bold, color = Color(0xFFFF8A80))
+            },
+            text = {
+                Text(
+                    text = "This will delete all released updates from Cloud Database (/updates), remove update announcements, and disable the in-app update prompt for all users.",
+                    color = Color.White,
+                    fontSize = 12.5.sp,
+                    lineHeight = 18.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onDeleteAllReleasedUpdates()
+                        showDeleteAllUpdatesConfirm = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MarketRed, contentColor = Color.White),
+                    modifier = Modifier.testTag("btn_confirm_delete_all_updates")
+                ) {
+                    Text("Delete All Released", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showDeleteAllUpdatesConfirm = false }) {
+                    Text("Cancel", color = Color.LightGray)
                 }
             },
             containerColor = TitaniumDarkSurface

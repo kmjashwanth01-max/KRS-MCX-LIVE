@@ -1,7 +1,7 @@
 <resources>
     <string name="app_name">KRS Gold &amp; Silver</string>
     <string name="widget_name">KRS Gold &amp; Silver Live Rates</string>
-    <string name="widget_description">Live MCX Gold 999 and Silver 1kg rates directly on your Home Screen</string>
-    <string name="silver_widget_name">KRS Silver Live (MCX &amp; 1kg)</string>
-    <string name="silver_widget_description">Live 1s Silver MCX Futures and Physical 1kg Silver rates directly on your Home Screen</string>
+    <string name="widget_description">Live 1s MCX Gold 999, Silver 1kg, Gold Cent ($) and Silver Cent ($) rates directly on your Home Screen</string>
+    <string name="silver_widget_name">KRS Silver Live (MCX, 1kg &amp; Cent $)</string>
+    <string name="silver_widget_description">Live 1s Silver MCX Futures, Physical 1kg Silver and Silver Cent ($) rates directly on your Home Screen</string>
 </resources>

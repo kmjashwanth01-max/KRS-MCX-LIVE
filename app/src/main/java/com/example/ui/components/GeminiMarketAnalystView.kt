@@ -36,6 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -393,8 +394,9 @@ fun JashxAiMarketAnalystView(
             onToggleLiveVoice = {
                 val active = liveVoiceState.status == LiveVoiceStatus.CONNECTING ||
                     liveVoiceState.status == LiveVoiceStatus.LISTENING ||
+                    liveVoiceState.status == LiveVoiceStatus.THINKING ||
                     liveVoiceState.status == LiveVoiceStatus.SPEAKING
-                if (active) {
+                if (active && liveVoiceState.isVoiceModalOpen) {
                     onStopLiveVoice()
                 } else {
                     launchLiveVoiceWithMicCheck()
@@ -898,10 +900,11 @@ fun JashxAiMarketAnalystView(
                     // Real-Time Voice Toggle Button (Bidirectional JASHX AI Voice)
                     val isVoiceChannelActive = liveVoiceState.status == LiveVoiceStatus.CONNECTING ||
                         liveVoiceState.status == LiveVoiceStatus.LISTENING ||
+                        liveVoiceState.status == LiveVoiceStatus.THINKING ||
                         liveVoiceState.status == LiveVoiceStatus.SPEAKING
                     IconButton(
                         onClick = {
-                            if (isVoiceChannelActive) {
+                            if (isVoiceChannelActive && liveVoiceState.isVoiceModalOpen) {
                                 onStopLiveVoice()
                             } else {
                                 launchLiveVoiceWithMicCheck()
@@ -1043,6 +1046,7 @@ private fun JashxLiveVoiceConsoleCard(
 ) {
     val isActive = liveVoiceState.status == LiveVoiceStatus.CONNECTING ||
         liveVoiceState.status == LiveVoiceStatus.LISTENING ||
+        liveVoiceState.status == LiveVoiceStatus.THINKING ||
         liveVoiceState.status == LiveVoiceStatus.SPEAKING
 
     val pulseTransition = rememberInfiniteTransition(label = "jashx_voice_pulse")
@@ -1060,6 +1064,7 @@ private fun JashxLiveVoiceConsoleCard(
         LiveVoiceStatus.IDLE -> GoldPrimary
         LiveVoiceStatus.CONNECTING -> GoldLight
         LiveVoiceStatus.LISTENING -> MarketGreen
+        LiveVoiceStatus.THINKING -> GoldPrimary
         LiveVoiceStatus.SPEAKING -> Color(0xFF38BDF8)
         LiveVoiceStatus.ERROR -> MarketRed
     }
@@ -1068,6 +1073,7 @@ private fun JashxLiveVoiceConsoleCard(
         LiveVoiceStatus.IDLE -> "VOICE READY"
         LiveVoiceStatus.CONNECTING -> "CONNECTING"
         LiveVoiceStatus.LISTENING -> "LISTENING LIVE"
+        LiveVoiceStatus.THINKING -> "THINKING"
         LiveVoiceStatus.SPEAKING -> "JASHX SPEAKING"
         LiveVoiceStatus.ERROR -> "ATTENTION"
     }
@@ -1099,22 +1105,32 @@ private fun JashxLiveVoiceConsoleCard(
                 ) {
                     Box(
                         contentAlignment = Alignment.Center,
-                        modifier = Modifier.size(44.dp)
+                        modifier = Modifier.size(48.dp)
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(38.dp)
+                                .size(44.dp)
                                 .scale(if (isActive) pulseScale else 1f)
                                 .clip(CircleShape)
-                                .background(statusColor.copy(alpha = if (isActive) 0.25f else 0.14f))
+                                .background(statusColor.copy(alpha = if (isActive) 0.28f else 0.14f))
+                        )
+                        Image(
+                            painter = painterResource(id = R.drawable.ic_jashx_ai_logo),
+                            contentDescription = "JASHX AI Live Voice Logo",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .border(1.4.dp, statusColor, CircleShape)
                         )
                         Box(
                             contentAlignment = Alignment.Center,
                             modifier = Modifier
-                                .size(32.dp)
+                                .align(Alignment.BottomEnd)
+                                .size(16.dp)
                                 .clip(CircleShape)
-                                .background(TitaniumCardBg)
-                                .border(1.2.dp, statusColor, CircleShape)
+                                .background(TitaniumDarkSurface)
+                                .border(1.dp, statusColor, CircleShape)
                         ) {
                             Icon(
                                 imageVector = if (liveVoiceState.status == LiveVoiceStatus.SPEAKING) {
@@ -1122,9 +1138,9 @@ private fun JashxLiveVoiceConsoleCard(
                                 } else {
                                     Icons.Default.Mic
                                 },
-                                contentDescription = "JASHX AI Live Voice",
+                                contentDescription = "Voice Status",
                                 tint = statusColor,
-                                modifier = Modifier.size(18.dp)
+                                modifier = Modifier.size(10.dp)
                             )
                         }
                     }
@@ -1203,45 +1219,6 @@ private fun JashxLiveVoiceConsoleCard(
                 }
             }
 
-            // Voice Persona Selector Chips
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                items(JashxVoicePersona.entries) { persona ->
-                    val isSelected = persona == liveVoiceState.selectedPersona
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = if (isSelected) GoldPrimary.copy(alpha = 0.2f) else TitaniumCardSurface,
-                        border = androidx.compose.foundation.BorderStroke(
-                            1.dp,
-                            if (isSelected) GoldPrimary else TitaniumBorder
-                        ),
-                        modifier = Modifier
-                            .heightIn(min = 40.dp)
-                            .clickable { onSelectVoicePersona(persona) }
-                            .testTag("voice_persona_${persona.name.lowercase()}")
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            Text(
-                                text = persona.displayName,
-                                color = if (isSelected) GoldPrimary else TextWhitePrimary,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = persona.subtitle,
-                                color = if (isSelected) GoldLight else TextDimTertiary,
-                                fontSize = 9.sp
-                            )
-                        }
-                    }
-                }
-            }
-
             // Live Spoken Transcript & Tool Lookup Indicator
             AnimatedVisibility(
                 visible = isActive ||
@@ -1284,8 +1261,16 @@ private fun JashxLiveVoiceConsoleCard(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Text(
-                                    text = if (liveVoiceState.status == LiveVoiceStatus.SPEAKING) "AI Speaking • Interrupt anytime" else "Mic Active",
-                                    color = if (liveVoiceState.status == LiveVoiceStatus.SPEAKING) Color(0xFF38BDF8) else MarketGreen,
+                                    text = when (liveVoiceState.status) {
+                                        LiveVoiceStatus.SPEAKING -> "AI Speaking • Interrupt anytime"
+                                        LiveVoiceStatus.THINKING -> "AI Thinking..."
+                                        else -> "Mic Active"
+                                    },
+                                    color = when (liveVoiceState.status) {
+                                        LiveVoiceStatus.SPEAKING -> Color(0xFF38BDF8)
+                                        LiveVoiceStatus.THINKING -> GoldPrimary
+                                        else -> MarketGreen
+                                    },
                                     fontSize = 9.5.sp,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -1392,17 +1377,29 @@ private fun JashxLiveVoiceConsoleCard(
                         fontSize = 12.5.sp
                     )
                 } else {
-                    Icon(
-                        imageVector = if (isActive) Icons.Default.CallEnd else Icons.Default.RecordVoiceOver,
-                        contentDescription = if (isActive) "End Live Voice" else "Start Live Voice",
-                        modifier = Modifier.size(20.dp)
-                    )
+                    if (isActive) {
+                        Icon(
+                            imageVector = Icons.Default.CallEnd,
+                            contentDescription = "End Live Voice",
+                            modifier = Modifier.size(20.dp)
+                        )
+                    } else {
+                        Image(
+                            painter = painterResource(id = R.drawable.ic_jashx_ai_logo),
+                            contentDescription = "Start Live Voice",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .size(24.dp)
+                                .clip(CircleShape)
+                                .border(1.dp, Color.Black.copy(alpha = 0.55f), CircleShape)
+                        )
+                    }
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = if (isActive) {
                             "End Live Voice Session"
                         } else {
-                            "Talk Live with JASHX AI (${liveVoiceState.selectedPersona.displayName})"
+                            "Talk Live with JASHX AI"
                         },
                         fontWeight = FontWeight.ExtraBold,
                         fontSize = 13.sp

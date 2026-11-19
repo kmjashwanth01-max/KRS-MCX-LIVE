@@ -8,16 +8,24 @@ package com.example.util
 object BrandSanitizer {
 
     private val forbiddenBrandReplacements: List<Pair<Regex, String>> = listOf(
-        Regex("""(?i)\bpowered\s+by\s+google\s+gemini(?:\s+\d+(?:\.\d+)?(?:\s+(?:flash|pro|live|lite|argon))?)?\b""") to "powered by JASHX AI",
-        Regex("""(?i)\bgoogle\s+gemini(?:\s+\d+(?:\.\d+)?(?:\s+(?:flash|pro|live|lite|argon))?)?\b""") to "JASHX AI",
-        Regex("""(?i)\bgemini(?:\s+\d+(?:\.\d+)?(?:\s+(?:flash|pro|live|lite|argon))?)?\b""") to "JASHX AI",
+        Regex("""(?i)\bpowered\s+by\s+(?:google\s+)?gemini(?:\s+\d+(?:\.\d+)?(?:\s+(?:flash|pro|live|lite|ultra|nano|argon))?)?\b""") to "powered by JASHX AI",
+        Regex("""(?i)\bgoogle\s+gemini(?:\s+\d+(?:\.\d+)?(?:\s+(?:flash|pro|live|lite|ultra|nano|argon))?)?(?:'s|s)?\b""") to "JASHX AI",
+        Regex("""(?i)\bgoogle\s+ai(?:\s+(?:studio|logic|live))?(?:'s|s)?\b""") to "JASHX AI",
+        Regex("""(?i)\bgemini(?:\s+\d+(?:\.\d+)?(?:\s+(?:flash|pro|live|lite|ultra|nano|argon))?)?(?:'s|s)?\b""") to "JASHX AI",
+        Regex("""(?i)\bvertex\s+ai\b""") to "JASHX Core Engine",
+        Regex("""(?i)\bchatgpt\b""") to "JASHX AI",
+        Regex("""(?i)\bopenai\b""") to "JASHX AI",
+        Regex("""(?i)\bgpt-?\d+(?:o|-mini|-turbo)?\b""") to "JASHX AI",
+        Regex("""(?i)\banthropic\b""") to "JASHX AI",
+        Regex("""(?i)\bclaude(?:\s+\d+(?:\.\d+)?)?\b""") to "JASHX AI",
+        Regex("""(?i)\bgoogle\.com\b""") to "cloud-web",
         Regex("""(?i)\bgoogle\s+search\b""") to "Live Web Search",
         Regex("""(?i)\bgoogle\s+news\b""") to "Live News Desk",
         Regex("""(?i)\bgoogle\s+cloud\b""") to "Cloud Infrastructure",
         Regex("""(?i)\bgoogle\s+account\b""") to "Cloud Account",
         Regex("""(?i)\bgoogle\s+sign[- ]?in\b""") to "One-Tap Cloud Sign-In",
         Regex("""(?i)\bgoogle\s+play\b""") to "App Services",
-        Regex("""(?i)\bgoogle\b""") to "Cloud",
+        Regex("""(?i)\bgoogle(?:'s|s)?\b""") to "Cloud",
         Regex("""(?i)\balphabet\s+inc\.?""") to "Major Tech Holdings",
         Regex("""(?i)\bJASHX AI\s*\(\s*JASHX AI\s*\)""") to "JASHX AI",
         Regex("""(?i)\bJASHX AI\s+JASHX AI\b""") to "JASHX AI"

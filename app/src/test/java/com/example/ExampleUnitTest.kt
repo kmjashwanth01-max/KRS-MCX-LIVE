@@ -484,13 +484,19 @@ class ExampleUnitTest {
     fun testJashxLiveVoiceAndBrandSanitization() {
         val dirtySamples = listOf(
             "Powered by Google Gemini 3.8 Flash",
-            "Gemini 3.8 Live response via Google Search and Google News",
-            "Sign in with Google Account on Google Play"
+            "Gemini's Vertex AI via Google AI Studio",
+            "Gemini 3.8 Live response via Google Search and Google News at google.com",
+            "Sign in with Google Account on Google Play",
+            "ChatGPT by OpenAI and GPT-4o or Claude by Anthropic"
         )
         dirtySamples.forEach { sample ->
             val clean = com.example.util.BrandSanitizer.sanitizeForUserDisplay(sample)
             assertFalse("Sanitized text must not contain 'gemini': $clean", clean.contains("gemini", ignoreCase = true))
             assertFalse("Sanitized text must not contain 'google': $clean", clean.contains("google", ignoreCase = true))
+            assertFalse("Sanitized text must not contain 'vertex': $clean", clean.contains("vertex", ignoreCase = true))
+            assertFalse("Sanitized text must not contain 'chatgpt': $clean", clean.contains("chatgpt", ignoreCase = true))
+            assertFalse("Sanitized text must not contain 'openai': $clean", clean.contains("openai", ignoreCase = true))
+            assertFalse("Sanitized text must not contain 'gpt': $clean", clean.contains("gpt", ignoreCase = true))
         }
 
         val engine = JashxAiEngine()
@@ -511,10 +517,16 @@ class ExampleUnitTest {
         assertFalse("Live summary must never mention Gemini", liveSummary.contains("gemini", ignoreCase = true))
         assertFalse("Live summary must never mention Google", liveSummary.contains("google", ignoreCase = true))
 
+        val closedSummary = engine.buildLiveFeedSummaryForAi(feed, isMarketOpen = false, marketStatusText = "MARKET CLOSED • Reopens Today at 09:00 AM IST")
+        assertTrue("Closed summary must state MARKET CLOSED", closedSummary.contains("MARKET CLOSED"))
+        assertTrue("Closed summary must explain midnight closure / reopen schedule", closedSummary.contains("12:00 AM IST"))
+        assertTrue("Closed summary must retain Reopens note", closedSummary.contains("Reopens Today at 09:00 AM IST"))
+
         val defaultVoiceState = com.example.data.LiveVoiceUiState()
         assertEquals(com.example.data.LiveVoiceStatus.IDLE, defaultVoiceState.status)
         assertEquals(com.example.data.JashxVoicePersona.KORE, defaultVoiceState.selectedPersona)
         assertEquals(0f, defaultVoiceState.micLevel, 0.0001f)
+        assertTrue(com.example.data.LiveVoiceStatus.entries.contains(com.example.data.LiveVoiceStatus.THINKING))
         assertEquals(4, com.example.data.JashxVoicePersona.entries.size)
         assertEquals("Kore", com.example.data.JashxVoicePersona.KORE.voiceId)
         assertTrue(
@@ -522,6 +534,56 @@ class ExampleUnitTest {
             com.example.data.JashxLiveVoiceManager.LIVE_API_MODELS.contains("gemini-3.1-flash-live-preview") &&
                 com.example.data.JashxLiveVoiceManager.LIVE_API_MODELS.contains("gemini-2.5-flash-native-audio-preview-12-2025")
         )
+
+        val wavBytes = com.example.data.JashxLiveVoiceManager.buildWavByteArray(ByteArray(320), sampleRate = 16000)
+        assertEquals(364, wavBytes.size)
+        assertEquals("RIFF", String(wavBytes, 0, 4, Charsets.US_ASCII))
+        assertEquals("WAVE", String(wavBytes, 8, 4, Charsets.US_ASCII))
+        assertEquals("fmt ", String(wavBytes, 12, 4, Charsets.US_ASCII))
+        assertEquals("data", String(wavBytes, 36, 4, Charsets.US_ASCII))
+    }
+
+    @Test
+    fun testMidnightMarketCloseAndReopenSchedule() {
+        val istZone = java.util.TimeZone.getTimeZone("Asia/Kolkata")
+        fun istCalendar(year: Int, monthZeroBased: Int, day: Int, hour24: Int, minute: Int): java.util.Calendar {
+            return java.util.Calendar.getInstance(istZone).apply {
+                set(year, monthZeroBased, day, hour24, minute, 0)
+                set(java.util.Calendar.MILLISECOND, 0)
+            }
+        }
+
+        // Monday 09:00 AM IST -> OPEN
+        val monMorning = istCalendar(2026, java.util.Calendar.NOVEMBER, 16, 9, 0)
+        assertTrue(com.example.data.McxRatesRepository.isMcxMarketOpenForCalendar(monMorning))
+
+        // Wednesday 02:30 PM IST -> OPEN
+        val wedAfternoon = istCalendar(2026, java.util.Calendar.NOVEMBER, 18, 14, 30)
+        assertTrue(com.example.data.McxRatesRepository.isMcxMarketOpenForCalendar(wedAfternoon))
+
+        // Friday 11:59 PM IST -> OPEN (last minute before 12:00 AM closure)
+        val friLateNight = istCalendar(2026, java.util.Calendar.NOVEMBER, 20, 23, 59)
+        assertTrue(com.example.data.McxRatesRepository.isMcxMarketOpenForCalendar(friLateNight))
+
+        // Tuesday 12:00 AM IST -> CLOSED strictly at midnight
+        val tueMidnight = istCalendar(2026, java.util.Calendar.NOVEMBER, 17, 0, 0)
+        assertFalse(com.example.data.McxRatesRepository.isMcxMarketOpenForCalendar(tueMidnight))
+        val tueMidnightNote = com.example.data.McxRatesRepository.getMarketReopenNote(tueMidnight)
+        assertTrue("Reopen note should explain today at 09:00 AM IST: $tueMidnightNote", tueMidnightNote.contains("Reopens Today at 09:00 AM IST"))
+        assertEquals("Reopens Today 9:00 AM", com.example.data.McxRatesRepository.getCompactReopenLabel(tueMidnight))
+
+        // Thursday 08:59 AM IST -> CLOSED
+        val thuPreOpen = istCalendar(2026, java.util.Calendar.NOVEMBER, 19, 8, 59)
+        assertFalse(com.example.data.McxRatesRepository.isMcxMarketOpenForCalendar(thuPreOpen))
+
+        // Saturday 12:00 AM IST & Sunday 02:00 PM IST -> CLOSED until Monday 09:00 AM IST
+        val satMidnight = istCalendar(2026, java.util.Calendar.NOVEMBER, 21, 0, 0)
+        val sunAfternoon = istCalendar(2026, java.util.Calendar.NOVEMBER, 22, 14, 0)
+        assertFalse(com.example.data.McxRatesRepository.isMcxMarketOpenForCalendar(satMidnight))
+        assertFalse(com.example.data.McxRatesRepository.isMcxMarketOpenForCalendar(sunAfternoon))
+        val sunNote = com.example.data.McxRatesRepository.getMarketReopenNote(sunAfternoon)
+        assertTrue("Weekend note should say Reopens Monday at 09:00 AM IST: $sunNote", sunNote.contains("Reopens Monday at 09:00 AM IST"))
+        assertEquals("Reopens Mon 9:00 AM", com.example.data.McxRatesRepository.getCompactReopenLabel(sunAfternoon))
     }
 
     @Test
@@ -537,5 +599,111 @@ class ExampleUnitTest {
 
         val creatorShorthand = JashxKnowledgeDatabase.queryKnowledgeBase("who made u", feed)
         assertTrue(creatorShorthand.contains("K.M. Jashwanth is the Founder of JASHX AI"))
+    }
+
+    @Test
+    fun testWidgetPriceTrackerRedGreenAndCentDirections() {
+        val baseFeed = VijayBullionFeed(
+            goldBarRate10g = 146040.0,
+            silverBarRate1kg = 189240.0,
+            mcxSilverLtp = 185100.0,
+            spotGoldBid = 4070.77,
+            spotSilverBid = 52.01,
+            spotInrBid = 93.90
+        )
+        val upFeed = baseFeed.copy(
+            goldBarRate10g = 146120.0,
+            silverBarRate1kg = 189350.0,
+            mcxSilverLtp = 185220.0,
+            spotGoldBid = 4072.15,
+            spotSilverBid = 52.18,
+            spotInrBid = 93.95
+        )
+        val upDirs = com.example.widget.WidgetPriceTracker.evaluateFeedTicks(baseFeed, null, upFeed)
+        assertEquals(com.example.model.PriceTickDirection.UP, upDirs.gold999)
+        assertEquals(com.example.model.PriceTickDirection.UP, upDirs.silver1kg)
+        assertEquals(com.example.model.PriceTickDirection.UP, upDirs.mcxSilver)
+        assertEquals(com.example.model.PriceTickDirection.UP, upDirs.spotGoldCent)
+        assertEquals(com.example.model.PriceTickDirection.UP, upDirs.spotSilverCent)
+        assertEquals(com.example.model.PriceTickDirection.UP, upDirs.spotInr)
+        assertEquals(com.example.widget.WidgetPriceTracker.COLOR_UP, com.example.widget.WidgetPriceTracker.colorForDirection(upDirs.spotSilverCent))
+        assertEquals("▲", com.example.widget.WidgetPriceTracker.arrowForDirection(upDirs.spotSilverCent))
+
+        // Flat tick holds prior UP color/direction
+        val flatDirs = com.example.widget.WidgetPriceTracker.evaluateFeedTicks(upFeed, upDirs, upFeed)
+        assertEquals(com.example.model.PriceTickDirection.UP, flatDirs.gold999)
+        assertEquals(com.example.model.PriceTickDirection.UP, flatDirs.spotGoldCent)
+        assertEquals(com.example.model.PriceTickDirection.UP, flatDirs.spotSilverCent)
+
+        // Downward tick switches to Red & DOWN
+        val downFeed = upFeed.copy(
+            goldBarRate10g = 145990.0,
+            silverBarRate1kg = 189100.0,
+            mcxSilverLtp = 184990.0,
+            spotGoldBid = 4068.50,
+            spotSilverBid = 51.82,
+            spotInrBid = 93.84
+        )
+        val downDirs = com.example.widget.WidgetPriceTracker.evaluateFeedTicks(upFeed, flatDirs, downFeed)
+        assertEquals(com.example.model.PriceTickDirection.DOWN, downDirs.gold999)
+        assertEquals(com.example.model.PriceTickDirection.DOWN, downDirs.silver1kg)
+        assertEquals(com.example.model.PriceTickDirection.DOWN, downDirs.mcxSilver)
+        assertEquals(com.example.model.PriceTickDirection.DOWN, downDirs.spotGoldCent)
+        assertEquals(com.example.model.PriceTickDirection.DOWN, downDirs.spotSilverCent)
+        assertEquals(com.example.model.PriceTickDirection.DOWN, downDirs.spotInr)
+        assertEquals(com.example.widget.WidgetPriceTracker.COLOR_DOWN, com.example.widget.WidgetPriceTracker.colorForDirection(downDirs.spotSilverCent))
+        assertEquals("▼", com.example.widget.WidgetPriceTracker.arrowForDirection(downDirs.spotSilverCent))
+    }
+
+    @Test
+    fun testBuildTurnChatHistoryStripsLeadingGreetingAndAlternates() {
+        val engine = JashxAiEngine()
+
+        // 1. Initial greeting followed by current user prompt -> empty startChat history
+        val firstTurnOnly = listOf(
+            com.example.model.ChatMessage(text = "Vanakkam! I am JASHX AI.", isFromUser = false),
+            com.example.model.ChatMessage(text = "Thinking...", isFromUser = false),
+            com.example.model.ChatMessage(text = "What is silver rate?", isFromUser = true)
+        )
+        val built1 = engine.buildTurnChatHistory(firstTurnOnly)
+        assertTrue("First turn history must be empty instead of starting with model greeting", built1.isEmpty())
+
+        // 2. Greeting + completed Q&A + consecutive user messages + pending user prompt
+        val multiTurn = listOf(
+            com.example.model.ChatMessage(text = "Vanakkam! Welcome.", isFromUser = false),
+            com.example.model.ChatMessage(text = "Gold price?", isFromUser = true),
+            com.example.model.ChatMessage(text = "Gold 999 is 146300.", isFromUser = false),
+            com.example.model.ChatMessage(text = "Wait also MCX gold?", isFromUser = true),
+            com.example.model.ChatMessage(text = "Check ask rate too", isFromUser = true),
+            com.example.model.ChatMessage(text = "MCX Gold ask is 142500.", isFromUser = false),
+            com.example.model.ChatMessage(text = "Thanks, now silver?", isFromUser = true)
+        )
+        val built2 = engine.buildTurnChatHistory(multiTurn)
+        assertEquals(4, built2.size)
+        assertEquals("user", built2[0].role)
+        assertEquals("model", built2[1].role)
+        assertEquals("user", built2[2].role)
+        assertEquals("model", built2[3].role)
+
+        // 3. Even if dangling user turn sits at the end without current duplicate, must end with model
+        val danglingUser = listOf(
+            com.example.model.ChatMessage(text = "Hi", isFromUser = true),
+            com.example.model.ChatMessage(text = "Hello!", isFromUser = false),
+            com.example.model.ChatMessage(text = "Another question", isFromUser = true)
+        )
+        val built3 = engine.buildTurnChatHistory(danglingUser)
+        assertEquals(2, built3.size)
+        assertEquals("user", built3.first().role)
+        assertEquals("model", built3.last().role)
+    }
+
+    @Test
+    fun testQueryKnowledgeBaseAsyncDirectResponses() = kotlinx.coroutines.runBlocking {
+        val feed = VijayBullionFeed(goldBarRate10g = 146300.0, silverBarRate1kg = 189440.0)
+        val mathAns = JashxKnowledgeDatabase.queryKnowledgeBaseAsync("25 * 4", feed)
+        assertTrue("Expected 100 in math answer: $mathAns", mathAns.contains("100"))
+
+        val founderAns = JashxKnowledgeDatabase.queryKnowledgeBaseAsync("who created you", feed)
+        assertTrue(founderAns.contains("K.M. Jashwanth"))
     }
 }

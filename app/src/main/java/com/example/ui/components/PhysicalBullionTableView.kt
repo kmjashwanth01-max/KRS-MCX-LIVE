@@ -181,23 +181,22 @@ fun PhysicalBullionTableView(
                     )
                 }
                 Text(
-                    text = "Gold 999 (10g) & Silver 1kg physical rates are closed right now. Live rates will reappear automatically when the market opens.",
+                    text = "Gold 999 (10g) & Silver 1kg rates are closed at 12:00 AM IST and hidden until the market reopens.",
                     color = if (isDark) Color(0xFFFFD6D6) else Color(0xFF7F1D1D),
                     fontSize = 11.5.sp,
                     textAlign = TextAlign.Center,
                     lineHeight = 16.sp
                 )
-                if (marketSessionDetail.isNotBlank() || liveIstClock.isNotBlank()) {
-                    Text(
-                        text = listOf(marketSessionDetail, liveIstClock)
-                            .filter { it.isNotBlank() }
-                            .joinToString(" • "),
-                        color = if (isDark) Color(0xFFFFAB91) else Color(0xFF991B1B),
-                        fontSize = 10.5.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        textAlign = TextAlign.Center
-                    )
-                }
+                val reopenDisplay = marketSessionDetail.ifBlank { "Reopens at 09:00 AM IST" }
+                Text(
+                    text = listOf(reopenDisplay, liveIstClock)
+                        .filter { it.isNotBlank() }
+                        .joinToString(" • "),
+                    color = if (isDark) Color(0xFFFFAB91) else Color(0xFF991B1B),
+                    fontSize = 10.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
             }
         } else {
             // Row 1: GOLD 999
@@ -329,7 +328,7 @@ private fun PhysicalBullionRowItem(
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(
                     text = String.format("%,.0f", buyPrice),
-                    color = primaryTextColor,
+                    color = buyLightColor,
                     fontSize = 15.5.sp,
                     fontWeight = FontWeight.ExtraBold,
                     textAlign = TextAlign.Center
@@ -366,7 +365,7 @@ private fun PhysicalBullionRowItem(
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(
                     text = String.format("%,.0f", sellPrice),
-                    color = primaryTextColor,
+                    color = sellLightColor,
                     fontSize = 15.5.sp,
                     fontWeight = FontWeight.ExtraBold,
                     textAlign = TextAlign.Center

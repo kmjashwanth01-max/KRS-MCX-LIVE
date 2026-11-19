@@ -250,6 +250,38 @@ class AdminCloudDatabaseRepositoryRuleTest : FirestoreEmulatorTestBase() {
             adminRepoAfter.listAppInstallationsForAdmin().getOrThrow()
         }
         assertTrue(installations.any { it.username == "alice_trader" && it.versionCode == 1L })
+
+        // 5. Regular user Bob CANNOT delete the released update (PERMISSION_DENIED)
+        signInTestUser(BOB_EMAIL)
+        val bobDeleteRepo = AdminCloudDatabaseRepository(firestore, auth)
+        val releasedRecord = CloudAppUpdateRecord(
+            id = "v1_1_b2",
+            versionCode = 2L,
+            versionName = "1.1",
+            isUpdateEnabled = true
+        )
+        val bobDeleteResult = withTimeout(DEFAULT_TIMEOUT_MS) {
+            bobDeleteRepo.deleteAppUpdateAsAdmin(releasedRecord)
+        }
+        assertTrue(bobDeleteResult.isFailure)
+        assertEquals(
+            FirebaseFirestoreException.Code.PERMISSION_DENIED,
+            bobDeleteResult.exceptionOrNull()?.unwrapFirestoreException()?.code
+        )
+
+        // 6. Admin CAN delete the released update and /app_config/app_update resets to disabled v1.0
+        signInTestUser(ADMIN_EMAIL)
+        val adminDeleteRepo = AdminCloudDatabaseRepository(firestore, auth)
+        val adminDeleteResult = withTimeout(DEFAULT_TIMEOUT_MS) {
+            adminDeleteRepo.deleteAppUpdateAsAdmin(releasedRecord)
+        }
+        assertTrue("Admin delete update must succeed", adminDeleteResult.isSuccess)
+        val resetConfig = withTimeout(DEFAULT_TIMEOUT_MS) {
+            adminDeleteRepo.getAppUpdateConfig().getOrThrow()
+        }
+        assertNotNull(resetConfig)
+        assertEquals(false, resetConfig?.isUpdateEnabled)
+        assertEquals(1L, resetConfig?.latestVersionCode)
     }
 
     private companion object {

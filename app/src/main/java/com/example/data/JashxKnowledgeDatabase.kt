@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
@@ -800,8 +801,8 @@ object JashxKnowledgeDatabase {
     }
 
     /**
-     * Fetches comprehensive up-to-date real-time context (live news RSS, Wikipedia summary,
-     * DuckDuckGo instant answer, and fresh trending headlines) for both JASHX AI text and live voice.
+     * Fetches comprehensive up-to-date real-time context (live news RSS, live IST clock,
+     * user GPS weather/location, and fresh trending headlines) for both JASHX AI text and live voice.
      */
     suspend fun fetchUpToDateContext(rawQuery: String): String = withContext(Dispatchers.IO) {
         val normalized = normalizeQuery(rawQuery)
@@ -816,7 +817,11 @@ object JashxKnowledgeDatabase {
         sections.add("Current IST Date & Time: $istDate, $istTime")
         sections.add("User Location & Weather: ${loc.city}, ${loc.state}, ${loc.country} | ${String.format("%.1f", loc.temperatureC)}°C (${loc.weatherCondition}, Wind ${String.format("%.1f", loc.windSpeedKmh)} km/h)")
 
-        val topicNews = if (cleanTopic.isNotBlank()) fetchGoogleNewsRss(cleanTopic, "TOPIC NEWS", 4) else emptyList()
+        val topicNews = if (cleanTopic.isNotBlank() && cleanTopic.length > 2) {
+            fetchGoogleNewsRss(cleanTopic, "TOPIC NEWS", 3)
+        } else {
+            emptyList()
+        }
         if (topicNews.isNotEmpty()) {
             sections.add(
                 "Fresh News on '$cleanTopic':\n" + topicNews.joinToString("\n") {
@@ -825,15 +830,10 @@ object JashxKnowledgeDatabase {
             )
         }
 
-        val encyclopedia = fetchLiveEncyclopediaAnswer(rawQuery)
-        if (!encyclopedia.isNullOrBlank()) {
-            sections.add("Verified Reference:\n${com.example.util.BrandSanitizer.sanitizeForUserDisplay(encyclopedia)}")
-        }
-
         val generalHeadlines = if (topicNews.isEmpty()) refreshAndGetLiveHeadlines(limitPerTopic = 2) else _liveTrendingFeeds.value
         if (generalHeadlines.isNotEmpty()) {
             sections.add(
-                "Latest Live Trending Headlines:\n" + generalHeadlines.take(6).joinToString("\n") {
+                "Latest Live Trending Headlines:\n" + generalHeadlines.take(5).joinToString("\n") {
                     "- [${it.category}] ${it.title} (${it.source}, ${it.pubDate})"
                 }
             )
@@ -848,6 +848,34 @@ object JashxKnowledgeDatabase {
             .replace(Regex("""^(the|a|an)\s+""", RegexOption.IGNORE_CASE), "")
             .replace("?", "")
             .trim()
+    }
+
+    /**
+     * Async live-network fallback for text chat and voice turns when primary model streaming is unreachable.
+     * Queries direct telemetry -> live Wikipedia / DuckDuckGo / RSS -> local telemetry summary.
+     */
+    suspend fun queryKnowledgeBaseAsync(rawQuery: String, liveFeed: VijayBullionFeed): String = withContext(Dispatchers.IO) {
+        matchDirectRelevantFeed(rawQuery, liveFeed)?.let { return@withContext it }
+
+        val encyclopedia = withTimeoutOrNull(4_500L) {
+            fetchLiveEncyclopediaAnswer(rawQuery)
+        }
+        if (!encyclopedia.isNullOrBlank()) {
+            return@withContext com.example.util.BrandSanitizer.sanitizeForUserDisplay(encyclopedia)
+        }
+
+        val topicNews = withTimeoutOrNull(2_500L) {
+            val topic = extractSearchTopic(rawQuery).ifBlank { rawQuery.trim() }
+            if (topic.length >= 2) fetchGoogleNewsRss(topic, "LIVE FEED", 3) else emptyList()
+        }.orEmpty()
+        if (topicNews.isNotEmpty()) {
+            val bullets = topicNews.joinToString("\n") { "• ${it.title} (${it.source})" }
+            return@withContext com.example.util.BrandSanitizer.sanitizeForUserDisplay(
+                "📰 Here are the latest live updates on \"${rawQuery.trim()}\":\n$bullets"
+            )
+        }
+
+        queryKnowledgeBase(rawQuery, liveFeed)
     }
 
     /**

@@ -692,14 +692,20 @@ fun MainAppScreen(
                         // 2. MCX Futures (GoldMCX & SilverMCX) with maroon red header
                         McxFuturesTableView(
                             mcxGold = mcxGold,
-                            mcxSilver = mcxSilver
+                            mcxSilver = mcxSilver,
+                            isMarketOpen = isMarketOpen,
+                            marketSessionDetail = marketSessionDetail,
+                            liveIstClock = liveIstClock
                         )
 
                         // 3. International Spot Rates & Forex (Gold $, Silver $, INR ₹)
                         SpotRatesCentTableView(
                             spotGold = spotGold,
                             spotSilver = spotSilver,
-                            spotInr = spotInr
+                            spotInr = spotInr,
+                            isMarketOpen = isMarketOpen,
+                            marketSessionDetail = marketSessionDetail,
+                            liveIstClock = liveIstClock
                         )
 
                         // 4. Home Screen Widgets Promo Card (4-rate Gold/Silver Widget + Silver-Only Widget: MCX & 1kg)
@@ -711,7 +717,8 @@ fun MainAppScreen(
                             spotSilverContract = spotSilver,
                             isMarketOpen = isMarketOpen,
                             isPhysicalBullionOpen = physicalOpenLive,
-                            liveIstClock = liveIstClock
+                            liveIstClock = liveIstClock,
+                            marketSessionDetail = marketSessionDetail
                         )
 
                         // 6. Direct 1-Second Vijay Bullion Stream Rate Board
@@ -720,7 +727,8 @@ fun MainAppScreen(
                             selectedContractId = selectedContractId,
                             onSelectContract = { viewModel.selectContract(it) },
                             isMarketOpen = isMarketOpen,
-                            isPhysicalBullionOpen = physicalOpenLive
+                            isPhysicalBullionOpen = physicalOpenLive,
+                            marketSessionDetail = marketSessionDetail
                         )
 
                         // 7. Live Tick Canvas Chart for selected contract
@@ -728,14 +736,24 @@ fun MainAppScreen(
                         LiveTickChart(
                             contract = selectedContract,
                             selectedRange = chartRange,
-                            onSelectRange = { chartRange = it }
+                            onSelectRange = { chartRange = it },
+                            isMarketOpen = isMarketOpen,
+                            marketSessionDetail = marketSessionDetail
                         )
 
                         // 8. Order Book Market Depth
-                        OrderBookDepthView(contract = selectedContract)
+                        OrderBookDepthView(
+                            contract = selectedContract,
+                            isMarketOpen = isMarketOpen,
+                            marketSessionDetail = marketSessionDetail
+                        )
 
                         // 9. Indian Regional City Rates
-                        CityRatesView(cityRates = cityRates)
+                        CityRatesView(
+                            cityRates = cityRates,
+                            isMarketOpen = isMarketOpen,
+                            marketSessionDetail = marketSessionDetail
+                        )
 
                         Spacer(modifier = Modifier.height(16.dp))
                     }
@@ -767,8 +785,8 @@ fun MainAppScreen(
                         prediction = livePrediction,
                         chatMessages = chatMessages,
                         liveVoiceState = liveVoiceState,
-                        onStartLiveVoice = { viewModel.startLiveVoice() },
-                        onStopLiveVoice = { viewModel.stopLiveVoice() },
+                        onStartLiveVoice = { viewModel.startLiveVoice(openModal = true) },
+                        onStopLiveVoice = { viewModel.closeVoiceModal() },
                         onSelectVoicePersona = { persona -> viewModel.selectVoicePersona(persona) },
                         onClearVoiceError = { viewModel.clearLiveVoiceError() },
                         onGenerateAnalysis = { viewModel.requestAiAnalysis() },
@@ -779,64 +797,16 @@ fun MainAppScreen(
                 }
 
                 3 -> {
-                    // CHARTS TAB: Advanced Technical Analysis, RSI, Bollinger Bands, MACD, and Candlesticks
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .verticalScroll(rememberScrollState())
-                            .padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
-                    ) {
-                        // 1. Advanced Technical Chart with Candlestick/Line toggle, Bollinger Bands, RSI(14), MACD, and Touch Scrubber
-                        AdvancedTechnicalChartView(
-                            contracts = contracts,
-                            selectedContractId = selectedContractId,
-                            onSelectContract = { viewModel.selectContract(it) }
-                        )
-
-                        val baseLtp = selectedContract?.ltp ?: 146000.0
-                        val histPoints = remember(selectedContractId, baseLtp) {
-                            listOf(
-                                HistoricalDataPoint("09:15", baseLtp - 200, baseLtp + 100, baseLtp - 300, 1500),
-                                HistoricalDataPoint("11:30", baseLtp - 100, baseLtp + 200, baseLtp - 150, 3200),
-                                HistoricalDataPoint("14:00", baseLtp + 150, baseLtp + 350, baseLtp - 50, 4800),
-                                HistoricalDataPoint("17:30", baseLtp + 280, baseLtp + 400, baseLtp + 100, 6100),
-                                HistoricalDataPoint("20:00", baseLtp, baseLtp + 500, baseLtp - 100, 7800)
-                            )
-                        }
-                        val summary = remember(selectedContract, chartRange) {
-                            PeriodSummary(
-                                period = chartRange,
-                                startPrice = (selectedContract?.ltp ?: 146000.0) - 250.0,
-                                endPrice = selectedContract?.ltp ?: 146000.0,
-                                highPrice = selectedContract?.high ?: 148340.0,
-                                lowPrice = selectedContract?.low ?: 144555.0,
-                                change = selectedContract?.change ?: 250.0,
-                                changePercent = selectedContract?.changePercent ?: 1.66
-                            )
-                        }
-
-                        HistoricalChartSection(
-                            periodSummary = summary,
-                            historicalPoints = histPoints,
-                            selectedRange = chartRange,
-                            onSelectRange = { chartRange = it }
-                        )
-
-                        LiveTickChart(
-                            contract = selectedContract,
-                            selectedRange = chartRange,
-                            onSelectRange = { chartRange = it }
-                        )
-
-                        AllContractsListView(
-                            contracts = contracts,
-                            selectedContractId = selectedContractId,
-                            onSelectContract = { viewModel.selectContract(it) }
-                        )
-
-                        Spacer(modifier = Modifier.height(16.dp))
-                    }
+                    // CHARTS TAB: Real-Time 1-Second Updating Graphs for Gold 999, Silver 1kg, MCX Futures, Spot Cent ($), Forex
+                    val physicalOpenCharts = isMarketOpen && isPhysicalBullionOpen
+                    LiveChartsDashboardView(
+                        contracts = contracts,
+                        historyMap = historyMap,
+                        isMarketOpen = isMarketOpen,
+                        isPhysicalBullionOpen = physicalOpenCharts,
+                        liveIstClock = liveIstClock,
+                        marketSessionDetail = marketSessionDetail
+                    )
                 }
 
                 4 -> {
@@ -961,10 +931,15 @@ fun MainAppScreen(
                             spotSilverContract = spotSilver,
                             isMarketOpen = isMarketOpen,
                             isPhysicalBullionOpen = isMarketOpen && isPhysicalBullionOpen,
-                            liveIstClock = liveIstClock
+                            liveIstClock = liveIstClock,
+                            marketSessionDetail = marketSessionDetail
                         )
 
-                        CityRatesView(cityRates = cityRates)
+                        CityRatesView(
+                            cityRates = cityRates,
+                            isMarketOpen = isMarketOpen,
+                            marketSessionDetail = marketSessionDetail
+                        )
 
                         // Official Support & App Information Card
                         Card(
@@ -1073,6 +1048,12 @@ fun MainAppScreen(
                                     alsoBroadcastAnnouncement = alsoBroadcast
                                 )
                             },
+                            onDeleteAppUpdate = { record ->
+                                viewModel.deleteAppUpdateAsAdmin(record)
+                            },
+                            onDeleteAllReleasedUpdates = {
+                                viewModel.deleteAllReleasedUpdatesAsAdmin()
+                            },
                             modifier = Modifier
                                 .padding(innerPad)
                                 .padding(14.dp)
@@ -1096,6 +1077,23 @@ fun MainAppScreen(
                         selectedTab = 1
                     },
                     onDismiss = { viewModel.dismissAnnouncementLaunchDialog() }
+                )
+            }
+
+            // Full-Screen Live Voice Orb Modal (works across all Android devices)
+            if (liveVoiceState.isVoiceModalOpen) {
+                JashxVoiceOverlay(
+                    liveVoiceState = liveVoiceState,
+                    gold999 = gold999,
+                    silver1kg = silver1kg,
+                    isMarketOpen = isMarketOpen,
+                    onDismiss = { viewModel.closeVoiceModal() },
+                    onToggleMute = { viewModel.toggleVoiceMute() },
+                    onInterruptAndListen = { viewModel.interruptVoiceAndListen() },
+                    onSubmitAudioNow = { viewModel.submitVoiceAudioNow() },
+                    onSelectPersona = { persona -> viewModel.selectVoicePersona(persona) },
+                    onToggleCaptions = { viewModel.toggleVoiceCaptions() },
+                    onToggleCaptureMode = { viewModel.toggleVoiceCaptureMode() }
                 )
             }
         }

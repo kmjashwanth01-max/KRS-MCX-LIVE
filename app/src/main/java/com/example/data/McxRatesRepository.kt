@@ -5,6 +5,7 @@ import com.example.model.*
 import com.example.util.NotificationHelper
 import com.example.widget.BullionAppWidgetProvider
 import com.example.widget.SilverAppWidgetProvider
+import com.example.widget.WidgetPriceTracker
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -31,6 +32,77 @@ class McxRatesRepository(private val context: Context? = null) {
     companion object {
         private val istTimeSecondsFormat = SimpleDateFormat("hh:mm:ss a 'IST'", Locale.ENGLISH).apply {
             timeZone = TimeZone.getTimeZone("Asia/Kolkata")
+        }
+
+        fun getIstCalendar(): Calendar = Calendar.getInstance(TimeZone.getTimeZone("Asia/Kolkata"))
+
+        /**
+         * Market opens Mon-Fri from 09:00 AM (540 mins) through 11:59:59 PM (1439 mins) IST
+         * and closes strictly at 12:00 AM IST midnight.
+         */
+        fun isMcxMarketOpenForCalendar(cal: Calendar): Boolean {
+            val dayOfWeek = cal.get(Calendar.DAY_OF_WEEK)
+            val hour = cal.get(Calendar.HOUR_OF_DAY)
+            val minute = cal.get(Calendar.MINUTE)
+            val isWeekday = dayOfWeek in Calendar.MONDAY..Calendar.FRIDAY
+            val currentMinutesOfDay = hour * 60 + minute
+            return isWeekday && (currentMinutesOfDay in 540..1439)
+        }
+
+        fun getMarketReopenNote(
+            cal: Calendar = getIstCalendar(),
+            serverExplicitlyClosed: Boolean = false
+        ): String {
+            val dayOfWeek = cal.get(Calendar.DAY_OF_WEEK)
+            val hour = cal.get(Calendar.HOUR_OF_DAY)
+            val minute = cal.get(Calendar.MINUTE)
+            val currentMinutesOfDay = hour * 60 + minute
+            val isWeekday = dayOfWeek in Calendar.MONDAY..Calendar.FRIDAY
+
+            return when {
+                dayOfWeek == Calendar.SATURDAY -> {
+                    val minsUntilOpen = ((24 * 60 - currentMinutesOfDay) + 24 * 60 + 540).coerceAtLeast(1)
+                    val d = minsUntilOpen / (24 * 60)
+                    val h = (minsUntilOpen % (24 * 60)) / 60
+                    val m = minsUntilOpen % 60
+                    "Weekend Closure • Reopens Monday at 09:00 AM IST (in ${d}d ${h}h ${m}m)"
+                }
+                dayOfWeek == Calendar.SUNDAY -> {
+                    val minsUntilOpen = ((24 * 60 - currentMinutesOfDay) + 540).coerceAtLeast(1)
+                    val h = minsUntilOpen / 60
+                    val m = minsUntilOpen % 60
+                    "Weekend Closure • Reopens Monday at 09:00 AM IST (in ${h}h ${m}m)"
+                }
+                isWeekday && currentMinutesOfDay < 540 -> {
+                    val minsUntilOpen = (540 - currentMinutesOfDay).coerceAtLeast(1)
+                    val h = minsUntilOpen / 60
+                    val m = minsUntilOpen % 60
+                    "Closed at 12:00 AM IST • Reopens Today at 09:00 AM IST (in ${h}h ${m}m)"
+                }
+                serverExplicitlyClosed -> {
+                    if (dayOfWeek == Calendar.FRIDAY) {
+                        "Market Closed • Reopens Monday at 09:00 AM IST"
+                    } else {
+                        "Market Closed • Reopens Tomorrow at 09:00 AM IST"
+                    }
+                }
+                else -> "Closed at 12:00 AM IST • Reopens at 09:00 AM IST"
+            }
+        }
+
+        fun getCompactReopenLabel(
+            cal: Calendar = getIstCalendar(),
+            serverExplicitlyClosed: Boolean = false
+        ): String {
+            val dayOfWeek = cal.get(Calendar.DAY_OF_WEEK)
+            val currentMinutesOfDay = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
+            val isWeekday = dayOfWeek in Calendar.MONDAY..Calendar.FRIDAY
+            return when {
+                dayOfWeek == Calendar.SATURDAY || dayOfWeek == Calendar.SUNDAY -> "Reopens Mon 9:00 AM"
+                isWeekday && currentMinutesOfDay < 540 -> "Reopens Today 9:00 AM"
+                serverExplicitlyClosed && dayOfWeek == Calendar.FRIDAY -> "Reopens Mon 9:00 AM"
+                else -> "Reopens Next 9:00 AM"
+            }
         }
     }
 
@@ -63,7 +135,7 @@ class McxRatesRepository(private val context: Context? = null) {
     private val _liveIstClock = MutableStateFlow("Live IST")
     val liveIstClock: StateFlow<String> = _liveIstClock.asStateFlow()
 
-    private val _marketSessionDetail = MutableStateFlow("Session: 09:00 AM - 11:30 PM IST")
+    private val _marketSessionDetail = MutableStateFlow("Session: 09:00 AM - 12:00 AM IST")
     val marketSessionDetail: StateFlow<String> = _marketSessionDetail.asStateFlow()
 
     private val alertPrefs = try {
@@ -100,24 +172,56 @@ class McxRatesRepository(private val context: Context? = null) {
         startOneSecondFeedLoop()
     }
 
+    @Volatile
+    private var lastChartSnapshotMs: Long = 0L
+
     private fun startOneSecondClockAndStatusLoop() {
         repositoryScope.launch {
             while (isActive) {
                 try {
+                    val now = System.currentTimeMillis()
                     val currentFeed = _activeVijayFeed.value
                     updateMarketStatus(currentFeed)
+                    if (now - lastChartSnapshotMs >= 950L && _contracts.value.isNotEmpty()) {
+                        appendChartHistorySnapshot(now)
+                    }
                     if (context != null) {
+                        WidgetPriceTracker.recordRepoPush()
                         try {
-                            BullionAppWidgetProvider.updateAllWidgets(context, currentFeed)
+                            BullionAppWidgetProvider.updateAllWidgets(
+                                context,
+                                currentFeed,
+                                markSynced = hasReceivedRealApiResponse
+                            )
                         } catch (_: Exception) {}
                         try {
-                            SilverAppWidgetProvider.updateAllWidgets(context, currentFeed)
+                            SilverAppWidgetProvider.updateAllWidgets(
+                                context,
+                                currentFeed,
+                                markSynced = hasReceivedRealApiResponse
+                            )
                         } catch (_: Exception) {}
                     }
                 } catch (_: Exception) {}
                 delay(1000L) // Strict 1-second tick without fault
             }
         }
+    }
+
+    private fun appendChartHistorySnapshot(now: Long) {
+        lastChartSnapshotMs = now
+        val snapshotContracts = _contracts.value
+        if (snapshotContracts.isEmpty()) return
+        val currentHistory = _historyMap.value.toMutableMap()
+        for (c in snapshotContracts) {
+            val list = currentHistory[c.id]?.toMutableList() ?: mutableListOf()
+            list.add(PricePoint(timestamp = now, price = c.ltp))
+            if (list.size > 120) {
+                list.removeAt(0)
+            }
+            currentHistory[c.id] = list
+        }
+        _historyMap.value = currentHistory
     }
 
     private fun startOneSecondFeedLoop() {
@@ -165,6 +269,23 @@ class McxRatesRepository(private val context: Context? = null) {
                     generateCityRates(liveFeed)
                     generateOrderBook(liveFeed)
                     checkPriceAlerts()
+                    if (context != null) {
+                        WidgetPriceTracker.recordRepoPush()
+                        runCatching {
+                            BullionAppWidgetProvider.updateAllWidgets(
+                                context,
+                                liveFeed,
+                                markSynced = hasReceivedRealApiResponse
+                            )
+                        }
+                        runCatching {
+                            SilverAppWidgetProvider.updateAllWidgets(
+                                context,
+                                liveFeed,
+                                markSynced = hasReceivedRealApiResponse
+                            )
+                        }
+                    }
                 } catch (e: Exception) {
                     val recoveryFeed = VijayBullionApiClient.holdVerifiedLastTick(lastValidFeed)
                     lastValidFeed = recoveryFeed
@@ -326,12 +447,14 @@ class McxRatesRepository(private val context: Context? = null) {
             askTickDirection = mcxSilverAskTick
         )
 
-        // 5. Spot Gold ($)
+        // 5. Spot Gold Cent ($)
         val prevSpotGold = currentList["spot_gold"]
         val spotGoldBid = feed.spotGoldBid
         val spotGoldAsk = feed.spotGoldAsk
-        val spotGoldBidTick = if (isInitial) PriceTickDirection.UP else resolveTick(spotGoldBid, prevSpotGold?.bidPrice ?: 4070.77, prevSpotGold?.bidTickDirection ?: heartbeatTick)
-        val spotGoldAskTick = if (isInitial) PriceTickDirection.UP else resolveTick(spotGoldAsk, prevSpotGold?.askPrice ?: 4071.09, prevSpotGold?.askTickDirection ?: heartbeatTick)
+        val spotGoldMid = (feed.spotGoldHigh + feed.spotGoldLow) / 2.0
+        val spotGoldInitialDir = if (spotGoldBid >= spotGoldMid) PriceTickDirection.UP else PriceTickDirection.DOWN
+        val spotGoldBidTick = if (isInitial) spotGoldInitialDir else resolveTick(spotGoldBid, prevSpotGold?.bidPrice ?: 4070.77, prevSpotGold?.bidTickDirection ?: spotGoldInitialDir)
+        val spotGoldAskTick = if (isInitial) spotGoldInitialDir else resolveTick(spotGoldAsk, prevSpotGold?.askPrice ?: 4071.09, prevSpotGold?.askTickDirection ?: spotGoldInitialDir)
         val spotGoldContract = CommodityContract(
             id = "spot_gold",
             symbol = "GOLD($)",
@@ -355,12 +478,14 @@ class McxRatesRepository(private val context: Context? = null) {
             askTickDirection = spotGoldAskTick
         )
 
-        // 6. Spot Silver ($)
+        // 6. Spot Silver Cent ($)
         val prevSpotSilver = currentList["spot_silver"]
         val spotSilverBid = feed.spotSilverBid
         val spotSilverAsk = feed.spotSilverAsk
-        val spotSilverBidTick = if (isInitial) PriceTickDirection.UP else resolveTick(spotSilverBid, prevSpotSilver?.bidPrice ?: 52.01, prevSpotSilver?.bidTickDirection ?: heartbeatTick)
-        val spotSilverAskTick = if (isInitial) PriceTickDirection.UP else resolveTick(spotSilverAsk, prevSpotSilver?.askPrice ?: 52.02, prevSpotSilver?.askTickDirection ?: heartbeatTick)
+        val spotSilverMid = (feed.spotSilverHigh + feed.spotSilverLow) / 2.0
+        val spotSilverInitialDir = if (spotSilverBid >= spotSilverMid) PriceTickDirection.UP else PriceTickDirection.DOWN
+        val spotSilverBidTick = if (isInitial) spotSilverInitialDir else resolveTick(spotSilverBid, prevSpotSilver?.bidPrice ?: 52.01, prevSpotSilver?.bidTickDirection ?: spotSilverInitialDir)
+        val spotSilverAskTick = if (isInitial) spotSilverInitialDir else resolveTick(spotSilverAsk, prevSpotSilver?.askPrice ?: 52.02, prevSpotSilver?.askTickDirection ?: spotSilverInitialDir)
         val spotSilverContract = CommodityContract(
             id = "spot_silver",
             symbol = "SILVER($)",
@@ -388,8 +513,10 @@ class McxRatesRepository(private val context: Context? = null) {
         val prevSpotInr = currentList["spot_inr"]
         val spotInrBid = feed.spotInrBid
         val spotInrAsk = feed.spotInrAsk
-        val spotInrBidTick = if (isInitial) PriceTickDirection.UP else resolveTick(spotInrBid, prevSpotInr?.bidPrice ?: 93.90, prevSpotInr?.bidTickDirection ?: heartbeatTick)
-        val spotInrAskTick = if (isInitial) PriceTickDirection.UP else resolveTick(spotInrAsk, prevSpotInr?.askPrice ?: 93.94, prevSpotInr?.askTickDirection ?: heartbeatTick)
+        val spotInrMid = (feed.spotInrHigh + feed.spotInrLow) / 2.0
+        val spotInrInitialDir = if (spotInrBid >= spotInrMid) PriceTickDirection.UP else PriceTickDirection.DOWN
+        val spotInrBidTick = if (isInitial) spotInrInitialDir else resolveTick(spotInrBid, prevSpotInr?.bidPrice ?: 93.90, prevSpotInr?.bidTickDirection ?: spotInrInitialDir)
+        val spotInrAskTick = if (isInitial) spotInrInitialDir else resolveTick(spotInrAsk, prevSpotInr?.askPrice ?: 93.94, prevSpotInr?.askTickDirection ?: spotInrInitialDir)
         val spotInrContract = CommodityContract(
             id = "spot_inr",
             symbol = "INR(₹)",
@@ -424,13 +551,14 @@ class McxRatesRepository(private val context: Context? = null) {
         )
         _contracts.value = updatedList
 
-        // Append to history points for live chart
+        // Append to history points for live 1-second chart (retain last 120 seconds)
         val now = System.currentTimeMillis()
+        lastChartSnapshotMs = now
         val currentHistory = _historyMap.value.toMutableMap()
         for (c in updatedList) {
             val list = currentHistory[c.id]?.toMutableList() ?: mutableListOf()
             list.add(PricePoint(timestamp = now, price = c.ltp))
-            if (list.size > 50) {
+            if (list.size > 120) {
                 list.removeAt(0)
             }
             currentHistory[c.id] = list
@@ -494,73 +622,47 @@ class McxRatesRepository(private val context: Context? = null) {
     }
 
     /**
-     * Logic layer that automatically detects market open/close state every second based on
-     * IST market schedule (Mon-Fri 09:00 AM - 11:30 PM IST), live Vijay Bullion price ticks,
-     * and physical bullion quote availability.
+     * Automatically detects market open/close state every second based on
+     * IST market schedule (Mon-Fri 09:00 AM - 12:00 AM Midnight IST) and broadcast flags.
      */
     private fun updateMarketStatus(
         currentFeed: VijayBullionFeed = _activeVijayFeed.value
     ) {
         val cal = Calendar.getInstance(TimeZone.getTimeZone("Asia/Kolkata"))
-        val dayOfWeek = cal.get(Calendar.DAY_OF_WEEK)
         val hour = cal.get(Calendar.HOUR_OF_DAY)
         val minute = cal.get(Calendar.MINUTE)
 
         val timeString = istTimeSecondsFormat.format(cal.time)
         _liveIstClock.value = timeString
 
-        val isWeekday = dayOfWeek in Calendar.MONDAY..Calendar.FRIDAY
         val currentMinutesOfDay = hour * 60 + minute
-        val isScheduledSession = isWeekday && (currentMinutesOfDay in 540..1410)
+        val isScheduledSession = isMcxMarketOpenForCalendar(cal)
+        val serverClosedFlag = hasReceivedRealApiResponse && currentFeed.isServerExplicitlyClosed
 
-        val nowMs = System.currentTimeMillis()
-        val hasLivePriceMovement = lastPriceMovementTimestampMs > 0L &&
-            (nowMs - lastPriceMovementTimestampMs) < 45_000L &&
-            consecutivePriceChanges >= 2
+        // Closes strictly at 12:00 AM IST (midnight) and on weekends
+        val isOpenNow = isScheduledSession && !serverClosedFlag
 
-        if (!hasLivePriceMovement && lastPriceMovementTimestampMs > 0L && (nowMs - lastPriceMovementTimestampMs) >= 45_000L) {
-            consecutivePriceChanges = 0
-        }
-
-        // Market is OPEN during scheduled Mon-Fri IST market hours OR when genuine live price ticks are actively moving,
-        // unless the broadcast explicitly signals MARKET CLOSED and no live ticks are moving.
-        val isOpenNow = (isScheduledSession && !(hasReceivedRealApiResponse && currentFeed.isServerExplicitlyClosed)) ||
-            hasLivePriceMovement
-
-        // Physical Bullion is OPEN only when the market is open AND Vijay Bullion broadcast has active physical quotes
+        // Physical Bullion is OPEN only when the market is open AND physical quotes are active
         val physicalOpenNow = isOpenNow && (!hasReceivedRealApiResponse || currentFeed.hasPhysicalBullionQuotes)
 
         _isMarketOpen.value = isOpenNow
         _isPhysicalBullionOpen.value = physicalOpenNow
 
         if (isOpenNow) {
-            val detail = if (isScheduledSession) {
-                val minsToClose = (1410 - currentMinutesOfDay).coerceAtLeast(1)
-                val h = minsToClose / 60
-                val m = minsToClose % 60
-                if (physicalOpenNow) {
-                    "Live Bullion Feed Active • Closes in ${h}h ${m}m"
-                } else {
-                    "MCX Open • Physical Desk Closed • Closes in ${h}h ${m}m"
-                }
+            val minsToClose = (1440 - currentMinutesOfDay).coerceAtLeast(1)
+            val h = minsToClose / 60
+            val m = minsToClose % 60
+            val detail = if (physicalOpenNow) {
+                "Live 1s Feed Active • Closes at 12:00 AM IST (in ${h}h ${m}m)"
             } else {
-                "Live Bullion Session Active • Gold ₹${String.format("%,.0f", currentFeed.goldBarRate10g)}"
+                "MCX Open • Physical Desk Closed • Closes at 12:00 AM IST (in ${h}h ${m}m)"
             }
             _marketSessionDetail.value = detail
             _marketStatusText.value = "🟢 MCX & BULLION MARKET OPEN ($detail) • Live: $timeString"
         } else {
-            val detail = when {
-                !isWeekday -> "Weekend Closure • Opens Monday 09:00 AM IST"
-                currentMinutesOfDay < 540 -> {
-                    val minsToOpen = 540 - currentMinutesOfDay
-                    val h = minsToOpen / 60
-                    val m = minsToOpen % 60
-                    "Pre-Market • Opens in ${h}h ${m}m (09:00 AM IST)"
-                }
-                else -> "Daily Session Closed at 11:30 PM • Opens Tomorrow 09:00 AM IST"
-            }
+            val detail = getMarketReopenNote(cal, serverClosedFlag)
             _marketSessionDetail.value = detail
-            _marketStatusText.value = "🔴 MCX MARKET CLOSED ($detail) • $timeString"
+            _marketStatusText.value = "🔴 MARKET CLOSED ($detail) • $timeString"
         }
     }
 

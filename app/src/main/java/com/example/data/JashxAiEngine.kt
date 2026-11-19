@@ -6,6 +6,9 @@ import com.example.util.BrandSanitizer
 import com.example.util.LocationServiceManager
 import com.google.firebase.Firebase
 import com.google.firebase.ai.ai
+import com.google.firebase.ai.type.Content
+import com.google.firebase.ai.type.Tool
+import com.google.firebase.ai.type.content
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
@@ -13,6 +16,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -21,13 +25,51 @@ private const val TAG = "JashxAiEngine"
 
 /**
  * JASHX AI Autonomous Intelligence Engine powered by Firebase AI Logic,
- * Real-Time 1-Second Bullion Telemetry, Live Location & Weather, and Live Web News Grounding.
- * Engineered for K.M. Jashwanth & KRS Gold & Silver.
+ * Live Web Grounding, Real-Time 1-Second Bullion Telemetry, Live Location & Weather,
+ * and Live News Feeds. Strictly omits any third-party brand wording via BrandSanitizer.
  */
 class JashxAiEngine {
 
-    private val aiModel by lazy {
-        Firebase.ai.generativeModel("gemini-3.8-flash")
+    companion object {
+        private const val MODEL_NAME = "gemini-3.8-flash"
+        private const val LITE_MODEL_NAME = "gemini-3.5-flash-lite"
+
+        private const val CORE_SYSTEM_INSTRUCTION = """
+You are JASHX AI, a warm, articulate, authoritative real-time intelligence assistant built into the K.R.S. Gold & Silver Live MCX app.
+
+MANDATORY IDENTITY & BRANDING RULES (NEVER VIOLATE):
+1. Your name is strictly JASHX AI, founded and created by K.M. Jashwanth.
+2. NEVER output the words "Gemini", "Google", "Alphabet", "Bard", "Vertex", or any external AI model/company name—not even when asked what technology or model runs you.
+3. If asked "who created you", "who made you", or "who is your founder", state: "K.M. Jashwanth is the Founder of JASHX AI."
+4. If asked "who are you", "who are u", "who r u", "what is your name", or "introduce yourself", always introduce yourself directly as JASHX AI founded by K.M. Jashwanth—NEVER talk about a movie, TV series, or song.
+
+ANSWER QUALITY & UP-TO-DATE ACCURACY RULES:
+1. Answer the user's exact question directly, accurately, and naturally. Never give off-topic replies.
+2. You have access to real-time web grounding plus LIVE TELEMETRY injected in each turn (live 1s KRS Gold/Silver/MCX/Cent prices, IST date & time, live user location & weather, market open/closed schedule, and live headlines). Always use the latest live facts rather than outdated assumptions.
+3. Mention bullion rates only when relevant to what the user asked (gold, silver, jewelry, MCX, markets, or investment). For general questions (politics, coding, science, math, sports, travel, current affairs, history, daily life), answer that specific question clearly and concisely.
+"""
+    }
+
+    private val groundedModel by lazy {
+        Firebase.ai.generativeModel(
+            modelName = MODEL_NAME,
+            tools = listOf(Tool.googleSearch()),
+            systemInstruction = content { text(CORE_SYSTEM_INSTRUCTION.trimIndent()) }
+        )
+    }
+
+    private val standardModel by lazy {
+        Firebase.ai.generativeModel(
+            modelName = MODEL_NAME,
+            systemInstruction = content { text(CORE_SYSTEM_INSTRUCTION.trimIndent()) }
+        )
+    }
+
+    private val liteModel by lazy {
+        Firebase.ai.generativeModel(
+            modelName = LITE_MODEL_NAME,
+            systemInstruction = content { text(CORE_SYSTEM_INSTRUCTION.trimIndent()) }
+        )
     }
 
     /**
@@ -60,69 +102,126 @@ class JashxAiEngine {
 
     fun buildLiveFeedSummaryForAi(
         feed: VijayBullionFeed,
-        isMarketOpen: Boolean = feed.isBroadcastOpen,
-        marketStatusText: String = if (feed.isBroadcastOpen) "MARKET OPEN" else "MARKET CLOSED"
+        isMarketOpen: Boolean? = null,
+        marketStatusText: String? = null
     ): String {
         val sanitized = sanitizeAndCorrectFeed(feed)
+        val istCal = McxRatesRepository.getIstCalendar()
+        val effectiveOpen = isMarketOpen ?: McxRatesRepository.isMcxMarketOpenForCalendar(istCal)
+        val reopenNote = McxRatesRepository.getMarketReopenNote(istCal)
+        val effectiveStatus = marketStatusText ?: if (effectiveOpen) {
+            "MARKET OPEN"
+        } else {
+            "MARKET CLOSED • $reopenNote"
+        }
+
         val gold1g24k = sanitized.goldBarRate10g / 10.0
         val gold1g22k = gold1g24k * 0.916
         val gold1g18k = gold1g24k * 0.750
         val sovereign22k = gold1g22k * 8.0
         val (istTime, istDate) = JashxKnowledgeDatabase.getIstTimeAndDate()
         val loc = LocationServiceManager.locationState.value
-        val trendingFeeds = JashxKnowledgeDatabase.liveTrendingFeeds.value.take(6).joinToString(" | ") {
+        val trendingFeeds = JashxKnowledgeDatabase.liveTrendingFeeds.value.take(5).joinToString(" | ") {
             "[${it.category}] ${it.title} (${it.source})"
+        }
+        val sessionLine = if (effectiveOpen) {
+            "OPEN - 1s Live Streaming (Closes daily at 12:00 AM midnight IST)"
+        } else {
+            "CLOSED at 12:00 AM IST - $reopenNote (UI hides live rates until reopen; below are last synced session reference rates)"
         }
 
         return BrandSanitizer.sanitizeForUserDisplay(
             """
             - Live Timestamp (IST): $istDate, $istTime
-            - Market Status: $marketStatusText (${if (isMarketOpen) "OPEN - 1s Live Streaming" else "CLOSED / Weekend or Off-Hours Sync"})
-            - Live Physical Gold 999 (10g): ₹${String.format("%,.0f", sanitized.goldBarRate10g)} (1g 24K: ₹${String.format("%,.0f", gold1g24k)}, 1g 22K: ₹${String.format("%,.0f", gold1g22k)}, 1g 18K: ₹${String.format("%,.0f", gold1g18k)}, 8g Sovereign 22K: ₹${String.format("%,.0f", sovereign22k)})
-            - Live Physical Silver (1kg): ₹${String.format("%,.0f", sanitized.silverBarRate1kg)} (1g: ₹${String.format("%,.2f", sanitized.silverBarRate1kg / 1000.0)})
-            - Live MCX Gold Futures: Bid ₹${String.format("%,.0f", sanitized.mcxGoldBid)} / Ask ₹${String.format("%,.0f", sanitized.mcxGoldAsk)} (High ₹${String.format("%,.0f", sanitized.mcxGoldHigh)}, Low ₹${String.format("%,.0f", sanitized.mcxGoldLow)})
-            - Live MCX Silver Futures: Bid ₹${String.format("%,.0f", sanitized.mcxSilverBid)} / Ask ₹${String.format("%,.0f", sanitized.mcxSilverAsk)} (High ₹${String.format("%,.0f", sanitized.mcxSilverHigh)}, Low ₹${String.format("%,.0f", sanitized.mcxSilverLow)})
-            - Live International Spot: Spot Gold $${String.format("%.2f", sanitized.spotGoldBid)}/oz | Spot Silver $${String.format("%.2f", sanitized.spotSilverBid)}/oz | USD/INR ₹${String.format("%.2f", sanitized.spotInrBid)}
+            - Market Status: $effectiveStatus ($sessionLine)
+            - ${if (effectiveOpen) "Live" else "Last Session"} Physical Gold 999 (10g): ₹${String.format("%,.0f", sanitized.goldBarRate10g)} (1g 24K: ₹${String.format("%,.0f", gold1g24k)}, 1g 22K: ₹${String.format("%,.0f", gold1g22k)}, 1g 18K: ₹${String.format("%,.0f", gold1g18k)}, 8g Sovereign 22K: ₹${String.format("%,.0f", sovereign22k)})
+            - ${if (effectiveOpen) "Live" else "Last Session"} Physical Silver (1kg): ₹${String.format("%,.0f", sanitized.silverBarRate1kg)} (1g: ₹${String.format("%,.2f", sanitized.silverBarRate1kg / 1000.0)})
+            - ${if (effectiveOpen) "Live" else "Last Session"} MCX Gold Futures: Bid ₹${String.format("%,.0f", sanitized.mcxGoldBid)} / Ask ₹${String.format("%,.0f", sanitized.mcxGoldAsk)} (High ₹${String.format("%,.0f", sanitized.mcxGoldHigh)}, Low ₹${String.format("%,.0f", sanitized.mcxGoldLow)})
+            - ${if (effectiveOpen) "Live" else "Last Session"} MCX Silver Futures: Bid ₹${String.format("%,.0f", sanitized.mcxSilverBid)} / Ask ₹${String.format("%,.0f", sanitized.mcxSilverAsk)} (High ₹${String.format("%,.0f", sanitized.mcxSilverHigh)}, Low ₹${String.format("%,.0f", sanitized.mcxSilverLow)})
+            - ${if (effectiveOpen) "Live" else "Last Session"} International Spot Cent: Spot Gold $${String.format("%.2f", sanitized.spotGoldBid)}/oz | Spot Silver $${String.format("%.2f", sanitized.spotSilverBid)}/oz | USD/INR ₹${String.format("%.2f", sanitized.spotInrBid)}
             - User Live Location & Weather: ${loc.city}, ${loc.state}, ${loc.country} | ${String.format("%.1f", loc.temperatureC)}°C (${loc.weatherCondition}, Wind ${String.format("%.1f", loc.windSpeedKmh)} km/h)
             - Latest Live News Headlines: $trendingFeeds
             """.trimIndent()
         )
     }
 
-    private fun buildLiveContextSystemPrompt(
+    internal fun buildTurnChatHistory(history: List<ChatMessage>): List<Content> {
+        val cleaned = history
+            .filter { msg ->
+                msg.text.isNotBlank() &&
+                    msg.text != "Thinking..."
+            }
+        // If caller already appended the latest user turn to history, exclude it so sendMessageStream doesn't duplicate it
+        val priorTurns = if (cleaned.lastOrNull()?.isFromUser == true) {
+            cleaned.dropLast(1)
+        } else {
+            cleaned
+        }
+
+        // Merge consecutive same-role turns so roles strictly alternate
+        val merged = mutableListOf<ChatMessage>()
+        for (msg in priorTurns) {
+            val prev = merged.lastOrNull()
+            if (prev != null && prev.isFromUser == msg.isFromUser) {
+                merged[merged.lastIndex] = prev.copy(text = "${prev.text}\n${msg.text}")
+            } else {
+                merged.add(msg)
+            }
+        }
+
+        // Keep up to the last 12 alternating turns, then strip any leading model greeting
+        // and any trailing un-replied user turn so startChat() ALWAYS receives [] or [user, model, ..., model].
+        val window = merged.takeLast(12).toMutableList()
+        while (window.firstOrNull()?.isFromUser == false) {
+            window.removeAt(0)
+        }
+        if (window.lastOrNull()?.isFromUser == true) {
+            window.removeAt(window.lastIndex)
+        }
+
+        return window.map { msg ->
+            content(role = if (msg.isFromUser) "user" else "model") {
+                text(BrandSanitizer.sanitizeForUserDisplay(msg.text))
+            }
+        }
+    }
+
+    private fun buildConversationContextSnippet(history: List<ChatMessage>): String {
+        val cleaned = history
+            .filter { it.text.isNotBlank() && it.text != "Thinking..." }
+            .let { if (it.lastOrNull()?.isFromUser == true) it.dropLast(1) else it }
+            .takeLast(6)
+        if (cleaned.isEmpty()) return ""
+        return cleaned.joinToString("\n") { msg ->
+            val speaker = if (msg.isFromUser) "User" else "JASHX AI"
+            "$speaker: ${BrandSanitizer.sanitizeForUserDisplay(msg.text.take(300))}"
+        }
+    }
+
+    private fun buildTurnUserPrompt(
         feed: VijayBullionFeed,
         userQuestion: String,
-        history: List<ChatMessage> = emptyList(),
-        upToDateContext: String? = null
+        upToDateContext: String?,
+        isMarketOpen: Boolean? = null,
+        marketStatusText: String? = null
     ): String {
-        val liveSummary = buildLiveFeedSummaryForAi(feed)
-        val recentHistoryText = history.takeLast(6).joinToString("\n") { msg ->
-            if (msg.isFromUser) "User: ${msg.text}" else "JASHX AI: ${msg.text}"
+        val liveSummary = buildLiveFeedSummaryForAi(feed, isMarketOpen, marketStatusText)
+        return buildString {
+            appendLine("[LIVE REAL-TIME TELEMETRY & SESSION CONTEXT — USE WHEN RELEVANT, NEVER INVENT RATES OR FACTS]")
+            appendLine(liveSummary)
+            if (!upToDateContext.isNullOrBlank()) {
+                appendLine()
+                appendLine("[UP-TO-DATE LIVE CONTEXT]")
+                appendLine(upToDateContext)
+            }
+            appendLine()
+            appendLine("[USER QUESTION — ANSWER DIRECTLY, ACCURATELY, AND NEVER MENTION GEMINI OR GOOGLE]")
+            append(userQuestion.trim())
         }
-        return """
-            You are JASHX AI, an authoritative, warm, human-speaking real-time AI companion and bullion intelligence expert.
-
-            STRICT IDENTITY & BRANDING RULES (MANDATORY):
-            1. Your identity is exclusively "JASHX AI", created and founded by K.M. Jashwanth.
-            2. NEVER say the words "Gemini", "Google", "Alphabet", or any third-party AI brand/model name in any response.
-            3. If asked "who created you", "who made you", or "who is your founder", always include the exact phrase: "K.M. Jashwanth is the Founder of JASHX AI".
-            4. If asked "who are you", "who are u", "who r u", or "what is your name", ALWAYS introduce yourself as JASHX AI founded by K.M. Jashwanth—NEVER talk about a movie, TV series, or song titled "Who Are You".
-
-            ACCURACY & UP-TO-DATE CONTEXT RULES:
-            1. Always rely on the LIVE REAL-TIME TELEMETRY and UP-TO-DATE WEB GROUNDING provided below (prioritizing today's live IST date, live 1s bullion feed, and live refreshed headlines over older training data).
-            2. Give accurate, verified, and directly relevant answers to any question (bullion, jewelry, MCX, weather, Tamil Nadu/India/World news & politics, science, math, coding, general knowledge).
-            3. Speak naturally like a real human expert. Mention bullion rates only when the user asks about gold, silver, jewelry, MCX, or markets.
-
-            LIVE REAL-TIME TELEMETRY FEED:
-            $liveSummary
-            ${if (!upToDateContext.isNullOrBlank()) "\nUP-TO-DATE LIVE WEB & REFERENCE CONTEXT:\n$upToDateContext\n" else ""}
-            ${if (recentHistoryText.isNotBlank()) "Recent Conversation:\n$recentHistoryText\n" else ""}
-            User Question: $userQuestion
-        """.trimIndent()
     }
 
     /**
-     * Generate real-time bullion market commentary and technical analysis using JASHX AI.
+     * Generate real-time bullion market commentary and technical analysis directly via Firebase AI.
      */
     fun streamMarketAnalysis(
         feed: VijayBullionFeed,
@@ -137,43 +236,76 @@ class JashxAiEngine {
             appendLine("• **Gold 999 (10g)**: ₹${String.format("%,.0f", sanitized.goldBarRate10g)} | **Silver 1kg**: ₹${String.format("%,.0f", sanitized.silverBarRate1kg)}")
             appendLine("• **MCX Gold**: Bid ₹${String.format("%,.0f", sanitized.mcxGoldBid)} / Ask ₹${String.format("%,.0f", sanitized.mcxGoldAsk)}")
             appendLine("• **MCX Silver**: Bid ₹${String.format("%,.0f", sanitized.mcxSilverBid)} / Ask ₹${String.format("%,.0f", sanitized.mcxSilverAsk)}")
-            appendLine("• **Spot Gold**: \$${String.format("%.2f", sanitized.spotGoldBid)}/oz | **USD/INR**: ₹${String.format("%.2f", sanitized.spotInrBid)} | **G/S Ratio**: ${String.format("%.1f", gsRatio)}")
-            appendLine("• **Intraday Strategy**: Support for Gold 999 holds near ₹${String.format("%,.0f", sanitized.goldBarRate10g - 400.0)} with upside target at ₹${String.format("%,.0f", sanitized.goldBarRate10g + 650.0)}.")
+            appendLine("• **Spot Cent**: Gold \$${String.format("%.2f", sanitized.spotGoldBid)}/oz | Silver \$${String.format("%.2f", sanitized.spotSilverBid)}/oz | USD/INR ₹${String.format("%.2f", sanitized.spotInrBid)} | G/S Ratio ${String.format("%.1f", gsRatio)}")
         }
         emit(baselineAnalysis)
 
-        try {
-            val liveNews = JashxKnowledgeDatabase.liveTrendingFeeds.value
-                .filter { it.category == "BULLION" || it.category == "WORLD" }
-                .take(3)
-                .joinToString("; ") { it.title }
-            val prompt = """
-                You are JASHX AI (never mention Gemini or Google).
-                Provide a concise 3-bullet institutional market outlook for Indian Gold & Silver traders based on these real-time rates:
-                Status: ${if (isMarketOpen) "OPEN" else "CLOSED"} ($sessionText)
-                Gold 999 (10g): ₹${String.format("%,.0f", sanitized.goldBarRate10g)}, Silver 1kg: ₹${String.format("%,.0f", sanitized.silverBarRate1kg)},
-                MCX Gold: ₹${String.format("%,.0f", sanitized.mcxGoldBid)}, MCX Silver: ₹${String.format("%,.0f", sanitized.mcxSilverBid)},
-                Spot Gold: $${String.format("%.2f", sanitized.spotGoldBid)}/oz, Spot Silver: $${String.format("%.2f", sanitized.spotSilverBid)}/oz, USD/INR: ₹${String.format("%.2f", sanitized.spotInrBid)}.
-                Live Market Headlines: $liveNews
-                Keep it sharp, factually grounded, and under 80 words.
-            """.trimIndent()
+        val liveNews = JashxKnowledgeDatabase.liveTrendingFeeds.value
+            .filter { it.category == "BULLION" || it.category == "WORLD" || it.category == "INDIA" }
+            .take(4)
+            .joinToString("; ") { it.title }
+        val (istTime, istDate) = JashxKnowledgeDatabase.getIstTimeAndDate()
 
-            val accumulated = StringBuilder(baselineAnalysis).append("\n🤖 **Live JASHX AI Macro Signal:**\n")
-            val rawSignal = StringBuilder()
+        val prompt = """
+            IST Date/Time: $istDate $istTime
+            Status: ${if (isMarketOpen) "OPEN" else "CLOSED"} ($sessionText)
+            Live Rates — Gold 999 (10g): ₹${String.format("%,.0f", sanitized.goldBarRate10g)}, Silver 1kg: ₹${String.format("%,.0f", sanitized.silverBarRate1kg)},
+            MCX Gold: ₹${String.format("%,.0f", sanitized.mcxGoldBid)}, MCX Silver: ₹${String.format("%,.0f", sanitized.mcxSilverBid)},
+            Gold Cent: $${String.format("%.2f", sanitized.spotGoldBid)}/oz, Silver Cent: $${String.format("%.2f", sanitized.spotSilverBid)}/oz, USD/INR: ₹${String.format("%.2f", sanitized.spotInrBid)}.
+            Latest Headlines: $liveNews
+            Write a crisp 3-bullet institutional market outlook and intraday action plan for Indian bullion & MCX traders in under 85 words. Never mention Gemini or Google.
+        """.trimIndent()
+
+        val header = "$baselineAnalysis\n🤖 **Live JASHX AI Macro Signal:**\n"
+        val rawSignal = StringBuilder()
+
+        suspend fun streamFrom(model: com.google.firebase.ai.GenerativeModel): Boolean {
+            var emitted = false
             withTimeout(60_000L) {
-                aiModel.generateContentStream(prompt).collect { chunk ->
+                model.generateContentStream(prompt).collect { chunk ->
                     val chunkText = chunk.text.orEmpty()
                     if (chunkText.isNotEmpty()) {
+                        emitted = true
                         rawSignal.append(chunkText)
-                        val cleanCombined = accumulated.toString() + BrandSanitizer.sanitizeForUserDisplay(rawSignal.toString())
-                        emit(cleanCombined)
+                        emit(header + BrandSanitizer.sanitizeForUserDisplay(rawSignal.toString().trim()))
                     }
                 }
+            }
+            return emitted
+        }
+
+        try {
+            val ok = try {
+                streamFrom(groundedModel)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                if (rawSignal.isNotEmpty()) {
+                    true
+                } else {
+                    Log.e(TAG, "Grounded market analysis fallback to standard model: ${t.message}", t)
+                    try {
+                        streamFrom(standardModel)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (t2: Throwable) {
+                        if (rawSignal.isNotEmpty()) true
+                        else {
+                            Log.e(TAG, "Standard market analysis fallback to lite model: ${t2.message}", t2)
+                            streamFrom(liteModel)
+                        }
+                    }
+                }
+            }
+            if (!ok && rawSignal.isEmpty()) {
+                val support = sanitized.goldBarRate10g - 400.0
+                val target = sanitized.goldBarRate10g + 650.0
+                emit(header + "Intraday support for Gold 999 holds near ₹${String.format("%,.0f", support)} with upside target toward ₹${String.format("%,.0f", target)} as Spot Gold tracks $${String.format("%.2f", sanitized.spotGoldBid)}/oz.")
             }
         } catch (e: CancellationException) {
             throw e
         } catch (t: Throwable) {
-            Log.w(TAG, "AI stream supplemental commentary skipped: ${t.message}")
+            Log.e(TAG, "AI stream market analysis warning: ${t.message}", t)
         }
     }.flowOn(Dispatchers.IO)
 
@@ -183,16 +315,20 @@ class JashxAiEngine {
     ): Flow<String> = chatWithJashxAi(emptyList(), question, feed)
 
     /**
-     * Multi-turn chat with JASHX AI:
-     * 1. Sub-10ms verified answer for deterministic math, creator, location/weather, bullion weights/rates, and time/date.
-     * 2. Live Web & Real-Time News Feed Retrieval + Streaming JASHX AI synthesis with 60s timeout so every question gets an up-to-date, accurate answer.
+     * Multi-turn conversational intelligence via Firebase AI Logic with Search Grounding:
+     * Every user question is answered directly by the live AI model using real-time telemetry,
+     * conversation history, and search grounding, strictly sanitized so no forbidden brand appears.
      */
     fun chatWithJashxAi(
         history: List<ChatMessage>,
         userMessage: String,
-        feed: VijayBullionFeed
+        feed: VijayBullionFeed,
+        forVoice: Boolean = false,
+        isMarketOpen: Boolean? = null,
+        marketStatusText: String? = null
     ): Flow<String> = flow {
         val sanitized = sanitizeAndCorrectFeed(feed)
+        JashxKnowledgeDatabase.refreshLiveFeedsAsync(force = false)
         val normalized = userMessage.lowercase().trim()
         val isNewsOrFeedRequest = normalized.contains("latest feed") ||
             normalized.contains("live feed") ||
@@ -200,80 +336,317 @@ class JashxAiEngine {
             normalized.contains("latest news") ||
             normalized.contains("today news") ||
             normalized.contains("current affairs") ||
-            normalized.contains("what is happening") ||
             normalized == "news" ||
             normalized == "feeds"
 
-        // If the user specifically asks for live feeds/news, refresh RSS immediately before responding!
         if (isNewsOrFeedRequest) {
-            val freshHeadlines = JashxKnowledgeDatabase.refreshAndGetLiveHeadlines(limitPerTopic = 2)
-            val (currentTimeIst, _) = JashxKnowledgeDatabase.getIstTimeAndDate()
-            val locState = LocationServiceManager.locationState.value
-            val feedLines = freshHeadlines.take(6).joinToString("\n") { item ->
-                "• [${item.category}]: ${item.title} (${item.source})"
+            withTimeoutOrNull(2000L) {
+                JashxKnowledgeDatabase.refreshAndGetLiveHeadlines(limitPerTopic = 2)
             }
-            val liveSnapshot = BrandSanitizer.sanitizeForUserDisplay(
-                """
-                📰 Here are your Latest Real-Time Feeds ($currentTimeIst):
-                • [LIVE BULLION]: Physical Gold 999 (10g) is at ₹${String.format("%,.0f", sanitized.goldBarRate10g)}, Silver 1kg is at ₹${String.format("%,.0f", sanitized.silverBarRate1kg)}, and Spot Gold is $${String.format("%.2f", sanitized.spotGoldBid)}/oz.
-                • [LOCAL WEATHER]: ${locState.city}, ${locState.state} is currently ${String.format("%.1f", locState.temperatureC)}°C with ${locState.weatherCondition}.
-                $feedLines
-                """.trimIndent()
-            )
-            emit(liveSnapshot)
-            return@flow
         }
 
-        // 1. Sub-10ms verified direct match (math, creator, bullion rates, location/weather, deterministic facts)
-        val instantFeedMatch = JashxKnowledgeDatabase.matchDirectRelevantFeed(userMessage, sanitized)
-        if (instantFeedMatch != null) {
-            emit(BrandSanitizer.sanitizeForUserDisplay(instantFeedMatch))
-            return@flow
+        val upToDateContext = withTimeoutOrNull(1800L) {
+            JashxKnowledgeDatabase.fetchUpToDateContext(userMessage)
         }
 
-        // 2. Fetch live up-to-date web, news, Wikipedia & DuckDuckGo context first
-        val upToDateContext = JashxKnowledgeDatabase.fetchUpToDateContext(userMessage)
-        val verifiedFact = JashxKnowledgeDatabase.fetchLiveEncyclopediaAnswer(userMessage)
-            ?.let { BrandSanitizer.sanitizeForUserDisplay(it) }
-        if (!verifiedFact.isNullOrBlank()) {
-            emit(verifiedFact)
+        val chatHistory = buildTurnChatHistory(history)
+        val voiceHint = if (forVoice) {
+            "\n[SPOKEN VOICE STYLE: Respond naturally in clear conversational sentences suitable to be spoken aloud. Avoid markdown, asterisks, bullet symbols, or emojis. Write 'Rupees' instead of '₹'. Keep answers crisp and direct.]"
+        } else {
+            ""
         }
-
-        // 3. Stream comprehensive, up-to-date response via Firebase AI Logic
-        val prompt = buildLiveContextSystemPrompt(
+        val enrichedPrompt = buildTurnUserPrompt(
             feed = sanitized,
             userQuestion = userMessage,
-            history = history,
-            upToDateContext = upToDateContext
-        )
+            upToDateContext = upToDateContext,
+            isMarketOpen = isMarketOpen,
+            marketStatusText = marketStatusText
+        ) + voiceHint
+
+        val conversationSnippet = buildConversationContextSnippet(history)
+        val statelessPrompt = if (conversationSnippet.isNotBlank()) {
+            "[RECENT CONVERSATION]\n$conversationSnippet\n\n$enrichedPrompt"
+        } else {
+            enrichedPrompt
+        }
+
         val streamedText = StringBuilder()
-        try {
+
+        suspend fun streamChatWithModel(model: com.google.firebase.ai.GenerativeModel): Boolean {
+            var emittedAny = false
+            val chat = model.startChat(history = chatHistory)
             withTimeout(60_000L) {
-                aiModel.generateContentStream(prompt).collect { chunk ->
+                chat.sendMessageStream(enrichedPrompt).collect { chunk ->
                     val part = chunk.text.orEmpty()
                     if (part.isNotEmpty()) {
+                        emittedAny = true
                         streamedText.append(part)
-                        emit(BrandSanitizer.sanitizeForUserDisplay(streamedText.toString().trim()))
+                        val clean = BrandSanitizer.sanitizeForUserDisplay(streamedText.toString().trim())
+                        if (clean.isNotBlank()) {
+                            emit(clean)
+                        }
                     }
                 }
             }
-            if (streamedText.isBlank()) {
-                emit(BrandSanitizer.sanitizeForUserDisplay(verifiedFact ?: JashxKnowledgeDatabase.queryKnowledgeBase(userMessage, sanitized)))
+            return emittedAny
+        }
+
+        suspend fun streamStatelessWithModel(model: com.google.firebase.ai.GenerativeModel): Boolean {
+            var emittedAny = false
+            withTimeout(45_000L) {
+                model.generateContentStream(statelessPrompt).collect { chunk ->
+                    val part = chunk.text.orEmpty()
+                    if (part.isNotEmpty()) {
+                        emittedAny = true
+                        streamedText.append(part)
+                        val clean = BrandSanitizer.sanitizeForUserDisplay(streamedText.toString().trim())
+                        if (clean.isNotBlank()) {
+                            emit(clean)
+                        }
+                    }
+                }
+            }
+            return emittedAny
+        }
+
+        try {
+            val primaryOk = try {
+                streamChatWithModel(groundedModel)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                Log.e(TAG, "Grounded chat failed (${t.message}), trying standard model", t)
+                streamedText.isNotEmpty()
+            }
+
+            if (!primaryOk && streamedText.isBlank()) {
+                val standardOk = try {
+                    streamChatWithModel(standardModel)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (t2: Throwable) {
+                    Log.e(TAG, "Standard chat failed (${t2.message}), trying lite model", t2)
+                    streamedText.isNotEmpty()
+                }
+
+                if (!standardOk && streamedText.isBlank()) {
+                    val liteOk = try {
+                        streamChatWithModel(liteModel)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (t3: Throwable) {
+                        Log.e(TAG, "Lite chat failed (${t3.message}), trying stateless generation", t3)
+                        streamedText.isNotEmpty()
+                    }
+
+                    if (!liteOk && streamedText.isBlank()) {
+                        val statelessStandardOk = try {
+                            streamStatelessWithModel(standardModel)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (t4: Throwable) {
+                            Log.e(TAG, "Stateless standard generation failed (${t4.message}), trying lite non-stream", t4)
+                            streamedText.isNotEmpty()
+                        }
+
+                        if (!statelessStandardOk && streamedText.isBlank()) {
+                            val statelessLiteOk = try {
+                                val resp = withTimeout(30_000L) { liteModel.generateContent(statelessPrompt) }
+                                val clean = BrandSanitizer.sanitizeForUserDisplay(resp.text.orEmpty().trim())
+                                if (clean.isNotBlank()) {
+                                    streamedText.append(clean)
+                                    emit(clean)
+                                    true
+                                } else {
+                                    false
+                                }
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (t5: Throwable) {
+                                Log.e(TAG, "Stateless lite generation failed (${t5.message}), falling back to live encyclopedia DB", t5)
+                                false
+                            }
+
+                            if (!statelessLiteOk && streamedText.isBlank()) {
+                                val fallback = JashxKnowledgeDatabase.queryKnowledgeBaseAsync(userMessage, sanitized)
+                                emit(BrandSanitizer.sanitizeForUserDisplay(fallback))
+                            }
+                        }
+                    }
+                }
             }
         } catch (e: TimeoutCancellationException) {
-            Log.e(TAG, "AI generation timed out after 60s", e)
+            Log.e(TAG, "AI generation timed out", e)
             if (streamedText.isBlank()) {
-                emit(BrandSanitizer.sanitizeForUserDisplay(verifiedFact ?: JashxKnowledgeDatabase.queryKnowledgeBase(userMessage, sanitized)))
+                val fallback = JashxKnowledgeDatabase.queryKnowledgeBaseAsync(userMessage, sanitized)
+                emit(BrandSanitizer.sanitizeForUserDisplay(fallback))
             }
         } catch (e: CancellationException) {
             throw e
         } catch (t: Throwable) {
-            Log.e(TAG, "Firebase AI generation failed, using verified live context answer", t)
+            Log.e(TAG, "Firebase AI chat failed, using live knowledge fallback", t)
             if (streamedText.isBlank()) {
-                emit(BrandSanitizer.sanitizeForUserDisplay(verifiedFact ?: JashxKnowledgeDatabase.queryKnowledgeBase(userMessage, sanitized)))
+                val fallback = JashxKnowledgeDatabase.queryKnowledgeBaseAsync(userMessage, sanitized)
+                emit(BrandSanitizer.sanitizeForUserDisplay(fallback))
             }
         }
     }.flowOn(Dispatchers.IO)
+
+    data class VoiceAudioStreamChunk(
+        val userTranscript: String,
+        val aiReply: String
+    )
+
+    /**
+     * Universal Multimodal Audio-In Voice Understanding via Firebase AI Logic:
+     * Accepts raw 16kHz WAV audio directly so voice works even on devices without SpeechRecognizer.
+     * Uses standardModel -> liteModel -> stateless fallback without search-tool schema conflicts on raw inlineData audio.
+     */
+    fun chatWithVoiceAudio(
+        history: List<ChatMessage>,
+        wavAudioBytes: ByteArray,
+        feed: VijayBullionFeed,
+        isMarketOpen: Boolean? = null,
+        marketStatusText: String? = null
+    ): Flow<VoiceAudioStreamChunk> = flow {
+        val sanitized = sanitizeAndCorrectFeed(feed)
+        JashxKnowledgeDatabase.refreshLiveFeedsAsync(force = false)
+        val liveSummary = buildLiveFeedSummaryForAi(sanitized, isMarketOpen, marketStatusText)
+        val priorHistory = buildTurnChatHistory(history)
+        val instructionPrompt = """
+            [LIVE REAL-TIME TELEMETRY & SESSION CONTEXT]
+            $liveSummary
+
+            [AUDIO VOICE INSTRUCTION]
+            Listen carefully to the user's spoken audio clip.
+            Format your output strictly as:
+            USER_SAID: <exact concise transcript of what the user asked>
+            REPLY: <clear, warm, natural conversational answer suitable for voice playback; no markdown/bullets/emojis; write 'Rupees' instead of '₹'; NEVER mention Gemini or Google>
+            If the audio contains only background noise or is completely unintelligible, output:
+            USER_SAID:
+            REPLY: UNCLEAR_AUDIO
+        """.trimIndent()
+
+        val audioContent = content("user") {
+            inlineData(wavAudioBytes, "audio/wav")
+            text(instructionPrompt)
+        }
+
+        val buffer = StringBuilder()
+
+        suspend fun streamAudioWith(model: com.google.firebase.ai.GenerativeModel, useChatHistory: Boolean): Boolean {
+            var emittedAny = false
+            withTimeout(45_000L) {
+                val flow = if (useChatHistory) {
+                    model.startChat(history = priorHistory).sendMessageStream(audioContent)
+                } else {
+                    model.generateContentStream(audioContent)
+                }
+                flow.collect { chunk ->
+                    val part = chunk.text.orEmpty()
+                    if (part.isNotEmpty()) {
+                        emittedAny = true
+                        buffer.append(part)
+                        val parsed = parseAudioStreamBuffer(buffer.toString())
+                        if (parsed != null) {
+                            emit(parsed)
+                        }
+                    }
+                }
+            }
+            return emittedAny
+        }
+
+        try {
+            val primaryOk = try {
+                streamAudioWith(standardModel, useChatHistory = true)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                Log.e(TAG, "Standard audio chat fallback to lite model: ${t.message}", t)
+                val partialParsed = parseAudioStreamBuffer(buffer.toString())
+                if (partialParsed != null && partialParsed.aiReply.isNotBlank()) {
+                    true
+                } else {
+                    buffer.setLength(0)
+                    try {
+                        streamAudioWith(liteModel, useChatHistory = true)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (t2: Throwable) {
+                        Log.e(TAG, "Lite audio chat fallback to stateless audio generation: ${t2.message}", t2)
+                        buffer.setLength(0)
+                        streamAudioWith(liteModel, useChatHistory = false)
+                    }
+                }
+            }
+            if (!primaryOk && buffer.isEmpty()) {
+                emit(VoiceAudioStreamChunk("", "UNCLEAR_AUDIO"))
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            Log.e(TAG, "Multimodal audio voice inference failed", t)
+            emit(VoiceAudioStreamChunk("", "I heard your voice but hit a temporary connection blip. Please speak again."))
+        }
+    }.flowOn(Dispatchers.IO)
+
+    private fun parseAudioStreamBuffer(raw: String): VoiceAudioStreamChunk? {
+        val replyIdx = raw.indexOf("REPLY:", ignoreCase = true)
+        val userIdx = raw.indexOf("USER_SAID:", ignoreCase = true)
+        if (replyIdx < 0 && userIdx < 0) {
+            val clean = BrandSanitizer.sanitizeForUserDisplay(raw.trim())
+            return if (clean.isNotBlank()) VoiceAudioStreamChunk("", clean) else null
+        }
+        val transcript = if (userIdx >= 0) {
+            val start = userIdx + "USER_SAID:".length
+            val end = if (replyIdx > userIdx) replyIdx else raw.length
+            BrandSanitizer.sanitizeForUserDisplay(raw.substring(start, end).trim())
+        } else {
+            ""
+        }
+        val reply = if (replyIdx >= 0) {
+            BrandSanitizer.sanitizeForUserDisplay(raw.substring(replyIdx + "REPLY:".length).trim())
+        } else {
+            ""
+        }
+        return if (transcript.isNotBlank() || reply.isNotBlank()) {
+            VoiceAudioStreamChunk(transcript, reply)
+        } else {
+            null
+        }
+    }
+
+    /**
+     * Enriches a calculated technical MarketPrediction with a concise AI-authored trading insight.
+     */
+    suspend fun enrichPredictionWithAiInsight(
+        prediction: MarketPrediction,
+        feed: VijayBullionFeed
+    ): MarketPrediction {
+        return try {
+            val sanitized = sanitizeAndCorrectFeed(feed)
+            val prompt = """
+                As JASHX AI (never say Gemini or Google), write a crisp 2-sentence institutional intraday insight for ${prediction.contractName}:
+                LTP: ₹${String.format("%,.0f", prediction.currentPrice)}, Pivot: ₹${String.format("%,.0f", prediction.pivotPoint)},
+                Target 1: ₹${String.format("%,.0f", prediction.target1)}, Stop Loss: ₹${String.format("%,.0f", prediction.stopLoss)},
+                Spot Gold: $${String.format("%.2f", sanitized.spotGoldBid)}/oz, Spot Silver: $${String.format("%.2f", sanitized.spotSilverBid)}/oz, USD/INR: ₹${String.format("%.2f", sanitized.spotInrBid)},
+                Signal Bias: ${prediction.bias.label} (${prediction.confidencePercent}% confidence).
+                Keep under 45 words and do not mention third-party AI brands.
+            """.trimIndent()
+            val response = withTimeoutOrNull(8_000L) {
+                standardModel.generateContent(prompt)
+            }
+            val rawText = response?.text?.trim().orEmpty()
+            val clean = BrandSanitizer.sanitizeForUserDisplay(rawText)
+            if (clean.isNotBlank()) prediction.copy(summaryInsight = clean) else prediction
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            Log.w(TAG, "AI prediction enrichment skipped: ${t.message}")
+            prediction
+        }
+    }
 
     /**
      * Calculate mathematically grounded Pivot Points and AI Targets.
@@ -363,3 +736,4 @@ class JashxAiEngine {
         )
     }
 }
+

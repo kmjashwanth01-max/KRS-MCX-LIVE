@@ -32,13 +32,34 @@ import com.example.ui.theme.*
 fun McxFuturesTableView(
     mcxGold: CommodityContract?,
     mcxSilver: CommodityContract?,
+    isMarketOpen: Boolean = true,
+    marketSessionDetail: String = "",
+    liveIstClock: String = "",
     modifier: Modifier = Modifier
 ) {
     val isDark = LocalIsDarkTheme.current
-    val tableBorderColor = if (isDark) BullionYellow.copy(alpha = 0.65f) else Color(0xFFD97706)
-    val headerBgColor = if (isDark) BullionYellow else Color(0xFFFACC15)
-    val headerTextColor = Color(0xFF111827)
-    val bodyBgColor = if (isDark) TitaniumDarkSurface else Color(0xFFE5E7EB)
+    val tableBorderColor = if (!isMarketOpen) {
+        Color(0xFFFF5252).copy(alpha = 0.75f)
+    } else if (isDark) {
+        BullionYellow.copy(alpha = 0.65f)
+    } else {
+        Color(0xFFD97706)
+    }
+    val headerBgColor = if (!isMarketOpen) {
+        if (isDark) Color(0xFF7F1D1D) else Color(0xFFDC2626)
+    } else if (isDark) {
+        BullionYellow
+    } else {
+        Color(0xFFFACC15)
+    }
+    val headerTextColor = if (!isMarketOpen) Color.White else Color(0xFF111827)
+    val bodyBgColor = if (!isMarketOpen) {
+        if (isDark) Color(0xFF241010) else Color(0xFFFEF2F2)
+    } else if (isDark) {
+        TitaniumDarkSurface
+    } else {
+        Color(0xFFE5E7EB)
+    }
 
     Column(
         modifier = modifier
@@ -48,7 +69,7 @@ fun McxFuturesTableView(
             .background(bodyBgColor)
             .testTag("mcx_futures_table_view")
     ) {
-        // Table Header: DESC | BUY | SELL | H|L (Yellow)
+        // Table Header
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -57,7 +78,7 @@ fun McxFuturesTableView(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "DESC",
+                text = if (isMarketOpen) "DESC" else "MCX FUTURES",
                 color = headerTextColor,
                 fontSize = 13.5.sp,
                 fontWeight = FontWeight.ExtraBold,
@@ -65,33 +86,52 @@ fun McxFuturesTableView(
                 letterSpacing = 0.5.sp,
                 modifier = Modifier.weight(1.3f)
             )
-            Text(
-                text = "BUY",
-                color = headerTextColor,
-                fontSize = 13.5.sp,
-                fontWeight = FontWeight.ExtraBold,
-                textAlign = TextAlign.Center,
-                letterSpacing = 0.5.sp,
-                modifier = Modifier.weight(1.1f)
-            )
-            Text(
-                text = "SELL",
-                color = headerTextColor,
-                fontSize = 13.5.sp,
-                fontWeight = FontWeight.ExtraBold,
-                textAlign = TextAlign.Center,
-                letterSpacing = 0.5.sp,
-                modifier = Modifier.weight(1.1f)
-            )
-            Text(
-                text = "H|L",
-                color = headerTextColor,
-                fontSize = 13.5.sp,
-                fontWeight = FontWeight.ExtraBold,
-                textAlign = TextAlign.End,
-                letterSpacing = 0.5.sp,
-                modifier = Modifier.weight(0.9f)
-            )
+            if (isMarketOpen) {
+                Text(
+                    text = "BUY",
+                    color = headerTextColor,
+                    fontSize = 13.5.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    textAlign = TextAlign.Center,
+                    letterSpacing = 0.5.sp,
+                    modifier = Modifier.weight(1.1f)
+                )
+                Text(
+                    text = "SELL",
+                    color = headerTextColor,
+                    fontSize = 13.5.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    textAlign = TextAlign.Center,
+                    letterSpacing = 0.5.sp,
+                    modifier = Modifier.weight(1.1f)
+                )
+                Text(
+                    text = "H|L",
+                    color = headerTextColor,
+                    fontSize = 13.5.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    textAlign = TextAlign.End,
+                    letterSpacing = 0.5.sp,
+                    modifier = Modifier.weight(0.9f)
+                )
+            } else {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.End,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Color(0xFF450A0A))
+                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                ) {
+                    Text(
+                        text = "MARKET CLOSED",
+                        color = Color(0xFFFFC5C5),
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = 0.4.sp
+                    )
+                }
+            }
         }
 
         Box(
@@ -101,26 +141,59 @@ fun McxFuturesTableView(
                 .background(tableBorderColor)
         )
 
-        // Row 1: GOLDMCX (₹)
-        McxFuturesRowItem(
-            desc = "GOLDMCX (₹)",
-            contract = mcxGold,
-            nameColor = if (isDark) BullionYellow else Color(0xFFB45309)
-        )
+        if (!isMarketOpen) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 16.dp)
+                    .testTag("mcx_futures_closed_notice"),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                Text(
+                    text = "MCX FUTURES CLOSED (GOLDMCX & SILVERMCX)",
+                    color = if (isDark) Color(0xFFFF8A80) else Color(0xFFB91C1C),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    textAlign = TextAlign.Center
+                )
+                Text(
+                    text = "Market closes at 12:00 AM IST. Prices are hidden until trading resumes.",
+                    color = if (isDark) Color(0xFFFFD6D6) else Color(0xFF7F1D1D),
+                    fontSize = 11.5.sp,
+                    textAlign = TextAlign.Center
+                )
+                val reopenNote = marketSessionDetail.ifBlank { "Reopens at 09:00 AM IST" }
+                Text(
+                    text = listOf(reopenNote, liveIstClock).filter { it.isNotBlank() }.joinToString(" • "),
+                    color = if (isDark) Color(0xFFFFAB91) else Color(0xFF991B1B),
+                    fontSize = 10.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+            }
+        } else {
+            // Row 1: GOLDMCX (₹)
+            McxFuturesRowItem(
+                desc = "GOLDMCX (₹)",
+                contract = mcxGold,
+                nameColor = if (isDark) BullionYellow else Color(0xFFB45309)
+            )
 
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(1.dp)
-                .background(tableBorderColor)
-        )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(tableBorderColor)
+            )
 
-        // Row 2: SILVERMCX (₹)
-        McxFuturesRowItem(
-            desc = "SILVERMCX (₹)",
-            contract = mcxSilver,
-            nameColor = if (isDark) BullionYellow else Color(0xFF1E293B)
-        )
+            // Row 2: SILVERMCX (₹)
+            McxFuturesRowItem(
+                desc = "SILVERMCX (₹)",
+                contract = mcxSilver,
+                nameColor = if (isDark) BullionYellow else Color(0xFF1E293B)
+            )
+        }
     }
 }
 
@@ -219,7 +292,7 @@ private fun McxFuturesRowItem(
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(
                     text = String.format("%,.0f", buyPrice),
-                    color = primaryTextColor,
+                    color = buyLightColor,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.ExtraBold,
                     textAlign = TextAlign.Center
@@ -256,7 +329,7 @@ private fun McxFuturesRowItem(
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(
                     text = String.format("%,.0f", sellPrice),
-                    color = primaryTextColor,
+                    color = sellLightColor,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.ExtraBold,
                     textAlign = TextAlign.Center

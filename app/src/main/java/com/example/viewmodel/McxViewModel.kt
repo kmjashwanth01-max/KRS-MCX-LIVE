@@ -456,16 +456,94 @@ class McxViewModel(application: Application? = null) : AndroidViewModel(applicat
         }
     }
 
-    fun selectContract(contractId: String) {
-        _selectedContractId.value = contractId
-        refreshPrediction()
+    fun deleteAppUpdateAsAdmin(record: CloudAppUpdateRecord) {
+        val appCtx = getApplication<Application>()
+        viewModelScope.launch {
+            _isPublishingUpdate.value = true
+            _updatePublishMessage.value = null
+            try {
+                val cloudRepo = AdminCloudDatabaseRepository(appCtx)
+                val res = cloudRepo.deleteAppUpdateAsAdmin(record)
+                res.onSuccess {
+                    _showUpdateDialogExplicitly.value = false
+                    _updateDismissedForSession.value = true
+                    cloudRepo.getAppUpdateConfig().onSuccess { updatedCfg ->
+                        _appUpdateConfig.value = updatedCfg
+                    }
+                    cloudRepo.listUpdatesHistory().onSuccess { history ->
+                        _updatesHistory.value = history
+                    }
+                    refreshAnnouncements()
+                    _updatePublishMessage.value = "Deleted update v${record.versionName} (Build ${record.versionCode}) from /updates database."
+                }.onFailure { err ->
+                    val rawErr = err.localizedMessage ?: err.message ?: "Sign in with Admin Cloud account first"
+                    _updatePublishMessage.value = "Delete failed: ${BrandSanitizer.sanitizeForUserDisplay(rawErr)}"
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _updatePublishMessage.value = "Delete failed: ${BrandSanitizer.sanitizeForUserDisplay(e.localizedMessage ?: "Error")}"
+            } finally {
+                _isPublishingUpdate.value = false
+            }
+        }
     }
 
-    fun refreshPrediction() {
+    fun deleteAllReleasedUpdatesAsAdmin() {
+        val appCtx = getApplication<Application>()
+        viewModelScope.launch {
+            _isPublishingUpdate.value = true
+            _updatePublishMessage.value = null
+            try {
+                val cloudRepo = AdminCloudDatabaseRepository(appCtx)
+                val res = cloudRepo.deleteAllReleasedUpdatesAsAdmin()
+                res.onSuccess { deletedCount ->
+                    _showUpdateDialogExplicitly.value = false
+                    _updateDismissedForSession.value = true
+                    cloudRepo.getAppUpdateConfig().onSuccess { updatedCfg ->
+                        _appUpdateConfig.value = updatedCfg
+                    }
+                    cloudRepo.listUpdatesHistory().onSuccess { history ->
+                        _updatesHistory.value = history
+                    }
+                    refreshAnnouncements()
+                    _updatePublishMessage.value = if (deletedCount > 0) {
+                        "Deleted $deletedCount released update(s) and reset active update popup."
+                    } else {
+                        "Active update popup reset (no pending releases remained in /updates)."
+                    }
+                }.onFailure { err ->
+                    val rawErr = err.localizedMessage ?: err.message ?: "Sign in with Admin Cloud account first"
+                    _updatePublishMessage.value = "Delete failed: ${BrandSanitizer.sanitizeForUserDisplay(rawErr)}"
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _updatePublishMessage.value = "Delete failed: ${BrandSanitizer.sanitizeForUserDisplay(e.localizedMessage ?: "Error")}"
+            } finally {
+                _isPublishingUpdate.value = false
+            }
+        }
+    }
+
+    fun selectContract(contractId: String) {
+        _selectedContractId.value = contractId
+        refreshPrediction(withAiInsight = true)
+    }
+
+    fun refreshPrediction(withAiInsight: Boolean = true) {
         val current = selectedContract.value ?: contracts.value.firstOrNull { it.id == selectedContractId.value }
         val feed = activeVijayFeed.value
-        val pred = jashxEngine.calculateLivePrediction(current, feed)
-        _livePrediction.value = pred
+        val basePred = jashxEngine.calculateLivePrediction(current, feed)
+        _livePrediction.value = basePred
+        if (withAiInsight) {
+            viewModelScope.launch {
+                val enriched = jashxEngine.enrichPredictionWithAiInsight(basePred, feed)
+                if (_livePrediction.value?.contractId == enriched.contractId) {
+                    _livePrediction.value = _livePrediction.value?.copy(summaryInsight = enriched.summaryInsight) ?: enriched
+                }
+            }
+        }
     }
 
     fun setPriceAlert(contractId: String, targetPrice: Double, isAbove: Boolean) {
@@ -496,7 +574,7 @@ class McxViewModel(application: Application? = null) : AndroidViewModel(applicat
                 ).collect { chunk ->
                     _aiAnalysisText.value = chunk
                 }
-                refreshPrediction()
+                refreshPrediction(withAiInsight = true)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -523,22 +601,17 @@ class McxViewModel(application: Application? = null) : AndroidViewModel(applicat
             .toMutableList()
             .apply { add(userMsg) }
 
-        // Instant check so if we already have a sub-10ms answer, it shows with zero "Thinking..." flicker
-        val instantPreview = com.example.data.JashxKnowledgeDatabase.matchDirectRelevantFeed(cleanQuestion, feed)
-        if (instantPreview != null) {
-            _aiAnalysisText.value = instantPreview
-            _chatMessages.value = baseChat + ChatMessage(text = instantPreview, isFromUser = false)
-        } else {
-            _chatMessages.value = baseChat + ChatMessage(text = "Thinking...", isFromUser = false)
-        }
+        _chatMessages.value = baseChat + ChatMessage(text = "Thinking...", isFromUser = false)
 
         activeChatJob = viewModelScope.launch {
             try {
-                var latestAnswer = instantPreview ?: ""
+                var latestAnswer = ""
                 jashxEngine.chatWithJashxAi(
                     history = baseChat,
                     userMessage = cleanQuestion,
-                    feed = feed
+                    feed = feed,
+                    isMarketOpen = isMarketOpen.value,
+                    marketStatusText = marketStatusText.value
                 ).collect { streamedAnswer ->
                     latestAnswer = streamedAnswer
                     _aiAnalysisText.value = streamedAnswer
@@ -555,25 +628,71 @@ class McxViewModel(application: Application? = null) : AndroidViewModel(applicat
                 throw e
             } catch (e: Exception) {
                 android.util.Log.e("McxViewModel", "JASHX AI chat error", e)
-                _aiErrorMessage.value = BrandSanitizer.sanitizeForUserDisplay("JASHX AI: ${e.message ?: "Unable to connect"}")
+                val emergencyReply = BrandSanitizer.sanitizeForUserDisplay(
+                    JashxKnowledgeDatabase.queryKnowledgeBaseAsync(cleanQuestion, feed)
+                )
+                _chatMessages.value = baseChat + ChatMessage(text = emergencyReply, isFromUser = false)
+                _aiAnalysisText.value = emergencyReply
+                _aiErrorMessage.value = null
             } finally {
+                if (_chatMessages.value.any { !it.isFromUser && it.text == "Thinking..." }) {
+                    val fallbackReply = BrandSanitizer.sanitizeForUserDisplay(
+                        JashxKnowledgeDatabase.queryKnowledgeBase(cleanQuestion, feed)
+                    )
+                    _chatMessages.value = baseChat + ChatMessage(text = fallbackReply, isFromUser = false)
+                    _aiAnalysisText.value = fallbackReply
+                }
                 _isGeneratingAi.value = false
             }
         }
     }
 
-    fun startLiveVoice() {
+    fun startLiveVoice(openModal: Boolean = true) {
         liveVoiceManager.updateLiveTelemetry(
             feed = activeVijayFeed.value,
             isMarketOpen = isMarketOpen.value,
             marketStatusText = marketStatusText.value,
             prediction = _livePrediction.value
         )
-        liveVoiceManager.startVoiceSession()
+        liveVoiceManager.startVoiceSession(openModal = openModal)
+    }
+
+    fun openVoiceModal() {
+        liveVoiceManager.updateLiveTelemetry(
+            feed = activeVijayFeed.value,
+            isMarketOpen = isMarketOpen.value,
+            marketStatusText = marketStatusText.value,
+            prediction = _livePrediction.value
+        )
+        liveVoiceManager.openVoiceModal()
+    }
+
+    fun closeVoiceModal() {
+        liveVoiceManager.closeVoiceModal()
     }
 
     fun stopLiveVoice() {
-        liveVoiceManager.stopVoiceSession()
+        liveVoiceManager.closeVoiceModal()
+    }
+
+    fun toggleVoiceMute() {
+        liveVoiceManager.toggleMute()
+    }
+
+    fun interruptVoiceAndListen() {
+        liveVoiceManager.interruptAndListen()
+    }
+
+    fun submitVoiceAudioNow() {
+        liveVoiceManager.submitDirectAudioNow()
+    }
+
+    fun toggleVoiceCaptions() {
+        liveVoiceManager.toggleCaptions()
+    }
+
+    fun toggleVoiceCaptureMode() {
+        liveVoiceManager.toggleCaptureMode()
     }
 
     fun selectVoicePersona(persona: JashxVoicePersona) {

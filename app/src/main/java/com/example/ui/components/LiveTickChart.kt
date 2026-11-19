@@ -28,6 +28,8 @@ fun LiveTickChart(
     contract: CommodityContract?,
     selectedRange: String,
     onSelectRange: (String) -> Unit,
+    isMarketOpen: Boolean = true,
+    marketSessionDetail: String = "",
     modifier: Modifier = Modifier
 ) {
     val ranges = listOf("1s LIVE", "1D", "1W", "1M", "1Y", "5Y")
@@ -35,7 +37,10 @@ fun LiveTickChart(
     Card(
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = TitaniumDarkSurface),
-        border = androidx.compose.foundation.BorderStroke(1.dp, TitaniumBorder),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            if (isMarketOpen) TitaniumBorder else Color(0xFFFF5252).copy(alpha = 0.55f)
+        ),
         modifier = modifier
             .fillMaxWidth()
             .testTag("live_tick_chart_card")
@@ -55,19 +60,19 @@ fun LiveTickChart(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "1-Second Real-Time Price Movement",
-                        color = TextDimTertiary,
+                        text = if (isMarketOpen) "1-Second Real-Time Price Movement" else "Market Closed at 12:00 AM IST",
+                        color = if (isMarketOpen) TextDimTertiary else Color(0xFFFF8A80),
                         fontSize = 10.sp
                     )
                 }
 
                 Surface(
                     shape = RoundedCornerShape(8.dp),
-                    color = MarketGreenGlow
+                    color = if (isMarketOpen) MarketGreenGlow else Color(0xFF450A0A)
                 ) {
                     Text(
-                        text = "• 1s STREAM",
-                        color = MarketGreen,
+                        text = if (isMarketOpen) "• 1s STREAM" else "🔴 CLOSED",
+                        color = if (isMarketOpen) MarketGreen else Color(0xFFFF8A80),
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
@@ -77,68 +82,92 @@ fun LiveTickChart(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Chart Canvas
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(130.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color(0xFF0C0E14))
-                    .padding(8.dp)
-            ) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    val w = size.width
-                    val h = size.height
-
-                    // Grid lines
-                    drawLine(Color(0xFF1E222D), Offset(0f, h * 0.25f), Offset(w, h * 0.25f), strokeWidth = 1f)
-                    drawLine(Color(0xFF1E222D), Offset(0f, h * 0.5f), Offset(w, h * 0.5f), strokeWidth = 1f)
-                    drawLine(Color(0xFF1E222D), Offset(0f, h * 0.75f), Offset(w, h * 0.75f), strokeWidth = 1f)
-
-                    // Wave curve
-                    val path = Path()
-                    path.moveTo(0f, h * 0.65f)
-                    path.cubicTo(w * 0.2f, h * 0.8f, w * 0.35f, h * 0.45f, w * 0.5f, h * 0.5f)
-                    path.cubicTo(w * 0.65f, h * 0.55f, w * 0.85f, h * 0.2f, w, h * 0.3f)
-
-                    drawPath(
-                        path = path,
-                        color = GoldPrimary,
-                        style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
+            if (!isMarketOpen) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color(0xFF241010))
+                        .padding(horizontal = 14.dp, vertical = 18.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = "Live Intraday Chart Paused — Market Closed",
+                        color = Color(0xFFFF8A80),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
                     )
-
-                    // Pulsing latest tick point
-                    drawCircle(
-                        color = GoldPrimary,
-                        radius = 4.dp.toPx(),
-                        center = Offset(w, h * 0.3f)
+                    Text(
+                        text = marketSessionDetail.ifBlank { "Reopens at 09:00 AM IST" },
+                        color = Color(0xFFFFD6D6),
+                        fontSize = 10.5.sp
                     )
                 }
-            }
+            } else {
+                // Chart Canvas
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(130.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color(0xFF0C0E14))
+                        .padding(8.dp)
+                ) {
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        val w = size.width
+                        val h = size.height
 
-            Spacer(modifier = Modifier.height(10.dp))
+                        // Grid lines
+                        drawLine(Color(0xFF1E222D), Offset(0f, h * 0.25f), Offset(w, h * 0.25f), strokeWidth = 1f)
+                        drawLine(Color(0xFF1E222D), Offset(0f, h * 0.5f), Offset(w, h * 0.5f), strokeWidth = 1f)
+                        drawLine(Color(0xFF1E222D), Offset(0f, h * 0.75f), Offset(w, h * 0.75f), strokeWidth = 1f)
 
-            // Range Selectors
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                ranges.forEach { range ->
-                    val isSel = selectedRange == range
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(if (isSel) GoldGlow else Color.Transparent)
-                            .border(1.dp, if (isSel) GoldPrimary else Color.Transparent, RoundedCornerShape(6.dp))
-                            .clickable { onSelectRange(range) }
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                    ) {
-                        Text(
-                            text = range,
-                            color = if (isSel) GoldLight else TextDimTertiary,
-                            fontSize = 10.sp,
-                            fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium
+                        // Wave curve
+                        val path = Path()
+                        path.moveTo(0f, h * 0.65f)
+                        path.cubicTo(w * 0.2f, h * 0.8f, w * 0.35f, h * 0.45f, w * 0.5f, h * 0.5f)
+                        path.cubicTo(w * 0.65f, h * 0.55f, w * 0.85f, h * 0.2f, w, h * 0.3f)
+
+                        drawPath(
+                            path = path,
+                            color = GoldPrimary,
+                            style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
                         )
+
+                        // Pulsing latest tick point
+                        drawCircle(
+                            color = GoldPrimary,
+                            radius = 4.dp.toPx(),
+                            center = Offset(w, h * 0.3f)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Range Selectors
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    ranges.forEach { range ->
+                        val isSel = selectedRange == range
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(if (isSel) GoldGlow else Color.Transparent)
+                                .border(1.dp, if (isSel) GoldPrimary else Color.Transparent, RoundedCornerShape(6.dp))
+                                .clickable { onSelectRange(range) }
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = range,
+                                color = if (isSel) GoldLight else TextDimTertiary,
+                                fontSize = 10.sp,
+                                fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium
+                            )
+                        }
                     }
                 }
             }

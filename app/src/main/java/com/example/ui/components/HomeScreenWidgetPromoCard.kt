@@ -31,9 +31,25 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.model.CommodityContract
+import com.example.model.PriceTickDirection
 import com.example.ui.theme.*
 import com.example.widget.BullionAppWidgetProvider
 import com.example.widget.SilverAppWidgetProvider
+
+private fun tickColor(direction: PriceTickDirection?, fallbackUp: Boolean = true): Color {
+    return when (direction) {
+        PriceTickDirection.UP -> MarketGreen
+        PriceTickDirection.DOWN -> Color(0xFFFF5252)
+        else -> if (fallbackUp) MarketGreen else Color(0xFFFF5252)
+    }
+}
+
+private fun tickArrow(direction: PriceTickDirection?): String {
+    return when (direction) {
+        PriceTickDirection.DOWN -> "▼"
+        else -> "▲"
+    }
+}
 
 @Composable
 fun HomeScreenWidgetPromoCard(
@@ -45,9 +61,11 @@ fun HomeScreenWidgetPromoCard(
     isMarketOpen: Boolean = true,
     isPhysicalBullionOpen: Boolean = true,
     liveIstClock: String = "",
+    marketSessionDetail: String = "",
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val reopenNote = marketSessionDetail.ifBlank { "Reopens 09:00 AM IST" }
 
     Card(
         shape = RoundedCornerShape(16.dp),
@@ -64,7 +82,10 @@ fun HomeScreenWidgetPromoCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
                     Box(
                         modifier = Modifier
                             .size(32.dp)
@@ -96,16 +117,18 @@ fun HomeScreenWidgetPromoCard(
                     }
                 }
 
+                Spacer(modifier = Modifier.width(6.dp))
+
                 Surface(
                     shape = RoundedCornerShape(8.dp),
                     color = if (isMarketOpen) MarketGreenGlow else Color(0xFF450A0A)
                 ) {
                     Text(
-                        text = if (isMarketOpen) "1s SYNC" else "CLOSED • 1s",
-                        color = if (isMarketOpen) MarketGreen else Color(0xFFFF5252),
+                        text = if (isMarketOpen) "1s SYNC" else "CLOSED",
+                        color = if (isMarketOpen) MarketGreen else Color(0xFFFF8A80),
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
                     )
                 }
             }
@@ -147,10 +170,10 @@ fun HomeScreenWidgetPromoCard(
                             text = if (isMarketOpen) {
                                 "🟢 Live 1s${if (liveIstClock.isNotBlank()) " • $liveIstClock" else ""}"
                             } else {
-                                "🔴 Closed${if (liveIstClock.isNotBlank()) " • $liveIstClock" else ""}"
+                                "🔴 Closed • $reopenNote"
                             },
-                            color = if (isMarketOpen) MarketGreen else Color(0xFFFF5252),
-                            fontSize = 9.sp,
+                            color = if (isMarketOpen) MarketGreen else Color(0xFFFF8A80),
+                            fontSize = 8.5.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -162,6 +185,9 @@ fun HomeScreenWidgetPromoCard(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
+                        val physOpen = isMarketOpen && isPhysicalBullionOpen
+                        val goldTick = goldContract?.bidTickDirection
+                        val goldColor = if (physOpen) tickColor(goldTick) else Color(0xFFFF5252)
                         // Rate 1: Gold 999
                         Column(
                             modifier = Modifier
@@ -172,18 +198,20 @@ fun HomeScreenWidgetPromoCard(
                         ) {
                             Text("GOLD 999 (10g)", color = GoldLight, fontSize = 8.5.sp, fontWeight = FontWeight.Bold)
                             Text(
-                                text = if (isPhysicalBullionOpen) "₹${String.format("%,.0f", goldContract?.ltp ?: 146040.0)}" else "CLOSED",
-                                color = if (isPhysicalBullionOpen) TextWhitePrimary else Color(0xFFFF5252),
+                                text = if (physOpen) "₹${String.format("%,.0f", goldContract?.ltp ?: 146040.0)}" else "CLOSED",
+                                color = goldColor,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.ExtraBold
                             )
                             Text(
-                                text = if (isPhysicalBullionOpen) "Physical Spot" else "Market Closed",
-                                color = if (isPhysicalBullionOpen) Color.Gray else Color(0xFFFF8A80),
+                                text = if (physOpen) "Physical ${tickArrow(goldTick)}" else reopenNote,
+                                color = if (physOpen) goldColor.copy(alpha = 0.85f) else Color(0xFFFF8A80),
                                 fontSize = 7.5.sp
                             )
                         }
 
+                        val silverTick = silverContract?.bidTickDirection
+                        val silverColor = if (physOpen) tickColor(silverTick) else Color(0xFFFF5252)
                         // Rate 2: Silver 1kg
                         Column(
                             modifier = Modifier
@@ -194,14 +222,14 @@ fun HomeScreenWidgetPromoCard(
                         ) {
                             Text("SILVER 1KG", color = Color(0xFFE0E0E0), fontSize = 8.5.sp, fontWeight = FontWeight.Bold)
                             Text(
-                                text = if (isPhysicalBullionOpen) "₹${String.format("%,.0f", silverContract?.ltp ?: 189240.0)}" else "CLOSED",
-                                color = if (isPhysicalBullionOpen) TextWhitePrimary else Color(0xFFFF5252),
+                                text = if (physOpen) "₹${String.format("%,.0f", silverContract?.ltp ?: 189240.0)}" else "CLOSED",
+                                color = silverColor,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.ExtraBold
                             )
                             Text(
-                                text = if (isPhysicalBullionOpen) "Physical Spot" else "Market Closed",
-                                color = if (isPhysicalBullionOpen) Color.Gray else Color(0xFFFF8A80),
+                                text = if (physOpen) "Physical ${tickArrow(silverTick)}" else reopenNote,
+                                color = if (physOpen) silverColor.copy(alpha = 0.85f) else Color(0xFFFF8A80),
                                 fontSize = 7.5.sp
                             )
                         }
@@ -209,11 +237,13 @@ fun HomeScreenWidgetPromoCard(
 
                     Spacer(modifier = Modifier.height(4.dp))
 
-                    // Row 2: International Spot Cent Rates (MCX removed per user request)
+                    // Row 2: International Spot Cent Rates (hidden when market closes at 12 AM)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
+                        val spotGoldTick = spotGoldContract?.bidTickDirection
+                        val spotGoldColor = if (isMarketOpen) tickColor(spotGoldTick) else Color(0xFFFF5252)
                         // Rate 3: Gold Cent ($)
                         Column(
                             modifier = Modifier
@@ -224,14 +254,20 @@ fun HomeScreenWidgetPromoCard(
                         ) {
                             Text("GOLD CENT ($)", color = GoldLight, fontSize = 8.5.sp, fontWeight = FontWeight.Bold)
                             Text(
-                                text = "$${String.format("%.2f", spotGoldContract?.ltp ?: 4070.77)}",
-                                color = TextWhitePrimary,
+                                text = if (isMarketOpen) "$${String.format("%.2f", spotGoldContract?.ltp ?: 4070.77)}" else "CLOSED",
+                                color = spotGoldColor,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.ExtraBold
                             )
-                            Text("Spot Cent / Oz", color = Color(0xFF81C784), fontSize = 7.5.sp)
+                            Text(
+                                text = if (isMarketOpen) "Spot Cent/Oz ${tickArrow(spotGoldTick)}" else reopenNote,
+                                color = spotGoldColor.copy(alpha = 0.85f),
+                                fontSize = 7.5.sp
+                            )
                         }
 
+                        val spotSilverTick = spotSilverContract?.bidTickDirection
+                        val spotSilverColor = if (isMarketOpen) tickColor(spotSilverTick) else Color(0xFFFF5252)
                         // Rate 4: Silver Cent ($)
                         Column(
                             modifier = Modifier
@@ -242,12 +278,16 @@ fun HomeScreenWidgetPromoCard(
                         ) {
                             Text("SILVER CENT ($)", color = Color(0xFFE0E0E0), fontSize = 8.5.sp, fontWeight = FontWeight.Bold)
                             Text(
-                                text = "$${String.format("%.2f", spotSilverContract?.ltp ?: 52.01)}",
-                                color = TextWhitePrimary,
+                                text = if (isMarketOpen) "$${String.format("%.2f", spotSilverContract?.ltp ?: 52.01)}" else "CLOSED",
+                                color = spotSilverColor,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.ExtraBold
                             )
-                            Text("Spot Cent / Oz", color = Color(0xFF81C784), fontSize = 7.5.sp)
+                            Text(
+                                text = if (isMarketOpen) "Spot Cent/Oz ${tickArrow(spotSilverTick)}" else reopenNote,
+                                color = spotSilverColor.copy(alpha = 0.85f),
+                                fontSize = 7.5.sp
+                            )
                         }
                     }
                 }
@@ -307,7 +347,7 @@ fun HomeScreenWidgetPromoCard(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Dedicated Silver-Only Widget (ONLY Silver MCX + 1kg Silver)
+            // Dedicated Silver Widget (Silver MCX + 1kg Silver + Silver Cent $)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -315,13 +355,13 @@ fun HomeScreenWidgetPromoCard(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Silver-Only Widget (MCX & 1kg)",
+                        text = "Silver Widget (MCX, 1kg & Cent $)",
                         color = Color(0xFFE2E8F0),
                         fontSize = 13.5.sp,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "Shows ONLY Silver MCX (1kg) & Physical Silver 1kg",
+                        text = "Shows Silver MCX (1kg), Physical Silver 1kg & Silver Cent ($) 1s",
                         color = GoldLight,
                         fontSize = 10.sp
                     )
@@ -331,7 +371,7 @@ fun HomeScreenWidgetPromoCard(
                     color = Color(0xFF1E293B)
                 ) {
                     Text(
-                        text = "SILVER 2-IN-1",
+                        text = "SILVER 3-IN-1",
                         color = Color(0xFF93C5FD),
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Bold,
@@ -377,15 +417,23 @@ fun HomeScreenWidgetPromoCard(
                             text = if (isMarketOpen) {
                                 "🟢 Live 1s${if (liveIstClock.isNotBlank()) " • $liveIstClock" else ""}"
                             } else {
-                                "🔴 Closed${if (liveIstClock.isNotBlank()) " • $liveIstClock" else ""}"
+                                "🔴 Closed • $reopenNote"
                             },
-                            color = if (isMarketOpen) MarketGreen else Color(0xFFFF5252),
-                            fontSize = 9.sp,
+                            color = if (isMarketOpen) MarketGreen else Color(0xFFFF8A80),
+                            fontSize = 8.5.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
 
                     Spacer(modifier = Modifier.height(6.dp))
+
+                    val physOpenSilver = isMarketOpen && isPhysicalBullionOpen
+                    val mcxSilverTick = mcxSilverContract?.bidTickDirection
+                    val mcxSilverColor = if (isMarketOpen) tickColor(mcxSilverTick) else Color(0xFFFF5252)
+                    val physSilverTick = silverContract?.bidTickDirection
+                    val physSilverColor = if (physOpenSilver) tickColor(physSilverTick) else Color(0xFFFF5252)
+                    val silverCentTick = spotSilverContract?.bidTickDirection
+                    val silverCentColor = if (isMarketOpen) tickColor(silverCentTick) else Color(0xFFFF5252)
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -405,14 +453,18 @@ fun HomeScreenWidgetPromoCard(
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "₹${String.format("%,.0f", mcxSilverContract?.ltp ?: 185139.0)}",
-                                color = TextWhitePrimary,
+                                text = if (isMarketOpen) "₹${String.format("%,.0f", mcxSilverContract?.ltp ?: 185139.0)}" else "CLOSED",
+                                color = mcxSilverColor,
                                 fontSize = 13.5.sp,
                                 fontWeight = FontWeight.ExtraBold
                             )
                             Text(
-                                text = "B:₹${String.format("%,.0f", mcxSilverContract?.bidPrice ?: 185085.0)} • A:₹${String.format("%,.0f", mcxSilverContract?.askPrice ?: 185139.0)}",
-                                color = Color(0xFF94A3B8),
+                                text = if (isMarketOpen) {
+                                    "${tickArrow(mcxSilverTick)} B:₹${String.format("%,.0f", mcxSilverContract?.bidPrice ?: 185085.0)} • A:₹${String.format("%,.0f", mcxSilverContract?.askPrice ?: 185139.0)}"
+                                } else {
+                                    reopenNote
+                                },
+                                color = mcxSilverColor.copy(alpha = 0.85f),
                                 fontSize = 7.5.sp
                             )
                         }
@@ -431,17 +483,51 @@ fun HomeScreenWidgetPromoCard(
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = if (isPhysicalBullionOpen) "₹${String.format("%,.0f", silverContract?.ltp ?: 189440.0)}" else "CLOSED",
-                                color = if (isPhysicalBullionOpen) TextWhitePrimary else Color(0xFFFF5252),
+                                text = if (physOpenSilver) "₹${String.format("%,.0f", silverContract?.ltp ?: 189440.0)}" else "CLOSED",
+                                color = physSilverColor,
                                 fontSize = 13.5.sp,
                                 fontWeight = FontWeight.ExtraBold
                             )
                             Text(
-                                text = if (isPhysicalBullionOpen) "Physical 1kg" else "Market Closed",
-                                color = if (isPhysicalBullionOpen) Color(0xFF81C784) else Color(0xFFFF8A80),
+                                text = if (physOpenSilver) "Physical 1kg ${tickArrow(physSilverTick)}" else reopenNote,
+                                color = if (physOpenSilver) physSilverColor.copy(alpha = 0.85f) else Color(0xFFFF8A80),
                                 fontSize = 7.5.sp
                             )
                         }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    // Live 1s Silver Cent ($) strip inside Silver Widget preview
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFF1F2026))
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text(
+                                text = "SILVER CENT ($)",
+                                color = Color(0xFFE2E8F0),
+                                fontSize = 9.5.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = if (isMarketOpen) "Spot Cent/Oz 1s ${tickArrow(silverCentTick)}" else reopenNote,
+                                color = silverCentColor.copy(alpha = 0.85f),
+                                fontSize = 8.5.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Text(
+                            text = if (isMarketOpen) "$${String.format("%.2f", spotSilverContract?.ltp ?: 52.01)}" else "CLOSED",
+                            color = silverCentColor,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
                     }
                 }
             }
@@ -458,7 +544,7 @@ fun HomeScreenWidgetPromoCard(
                         } else {
                             Toast.makeText(
                                 context,
-                                "Long press your home screen, tap 'Widgets' and add KRS Silver Live (MCX & 1kg)",
+                                "Long press your home screen, tap 'Widgets' and add KRS Silver Live (MCX, 1kg & Cent $)",
                                 Toast.LENGTH_LONG
                             ).show()
                         }
@@ -485,7 +571,7 @@ fun HomeScreenWidgetPromoCard(
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = "Add Silver Widget (MCX & 1kg)",
+                    text = "Add Silver Widget (MCX, 1kg & Cent $)",
                     fontWeight = FontWeight.Bold,
                     fontSize = 12.sp
                 )

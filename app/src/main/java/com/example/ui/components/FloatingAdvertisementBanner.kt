@@ -109,28 +109,25 @@ fun FloatingAdvertisementBanner(
         )
     }
 
-    val goldStr = if (!isPhysicalBullionOpen) {
-        "Physical Gold 999: CLOSED"
-    } else if (goldRate10g > 0) {
+    val closedNote = marketSessionDetail.ifBlank { "Reopens Today at 09:00 AM IST" }
+    val goldStr = if (!isMarketOpen || !isPhysicalBullionOpen || goldRate10g <= 0) {
+        "Gold 999: CLOSED"
+    } else {
         "Gold 999 (10g): ₹${String.format("%,.0f", goldRate10g)}"
-    } else {
-        "Gold 999 (10g): CLOSED"
     }
-    val silverStr = if (!isPhysicalBullionOpen) {
-        "Physical Silver 1kg: CLOSED"
-    } else if (silverRate1kg > 0) {
-        "Silver 1kg: ₹${String.format("%,.0f", silverRate1kg)}"
-    } else {
+    val silverStr = if (!isMarketOpen || !isPhysicalBullionOpen || silverRate1kg <= 0) {
         "Silver 1kg: CLOSED"
+    } else {
+        "Silver 1kg: ₹${String.format("%,.0f", silverRate1kg)}"
     }
-    val mcxGoldStr = if (mcxGoldLtp > 0) "GoldMCX: ₹${String.format("%,.0f", mcxGoldLtp)}" else "GoldMCX: ₹1,42,480"
-    val mcxSilverStr = if (mcxSilverLtp > 0) "SilverMCX: ₹${String.format("%,.0f", mcxSilverLtp)}" else "SilverMCX: ₹1,85,139"
-    val spotStr = if (spotGoldUsd > 0) "Spot Gold: $${String.format("%.2f", spotGoldUsd)} | Spot Silver: $${String.format("%.2f", spotSilverUsd)} | INR: ₹${String.format("%.2f", spotInr)}" else "Spot Gold: $4069.99 | INR: ₹94.09"
+    val mcxGoldStr = if (!isMarketOpen || mcxGoldLtp <= 0) "GoldMCX: CLOSED" else "GoldMCX: ₹${String.format("%,.0f", mcxGoldLtp)}"
+    val mcxSilverStr = if (!isMarketOpen || mcxSilverLtp <= 0) "SilverMCX: CLOSED" else "SilverMCX: ₹${String.format("%,.0f", mcxSilverLtp)}"
+    val spotStr = if (!isMarketOpen || spotGoldUsd <= 0) "Spot Rates: CLOSED" else "Spot Gold: $${String.format("%.2f", spotGoldUsd)} | Spot Silver: $${String.format("%.2f", spotSilverUsd)} | INR: ₹${String.format("%.2f", spotInr)}"
 
     val singleMarqueeLoop = if (isMarketOpen) {
         "🟢 MARKET OPEN (LIVE 1s FEED) • $goldStr • $silverStr • $mcxGoldStr • $mcxSilverStr • $spotStr • Direct 1-Second Live Stream • Support: $contactEmail • "
     } else {
-        "🔴 MARKET CLOSED ($marketSessionDetail) • $goldStr • $silverStr • $mcxGoldStr • $mcxSilverStr • $spotStr • Support: $contactEmail • "
+        "🔴 MARKET CLOSED AT 12:00 AM IST • $closedNote • All Bullion, MCX & Spot Prices Hidden Until Market Reopens • Support: $contactEmail • "
     }
     val marqueeContent = singleMarqueeLoop + singleMarqueeLoop
 

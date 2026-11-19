@@ -332,4 +332,7 @@ test("ONLY Admin can publish releases to /updates collection while app users can
     })
   );
   await assertFails(aliceDb.collection("updates").doc("v1_1_b2").delete());
+
+  // ONLY Admin CAN delete updates from /updates
+  await assertSucceeds(adminDb.collection("updates").doc("v1_1_b2").delete());
 });

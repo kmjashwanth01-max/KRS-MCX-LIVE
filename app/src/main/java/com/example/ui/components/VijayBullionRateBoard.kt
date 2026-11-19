@@ -35,15 +35,16 @@ fun VijayBullionRateBoard(
     onSelectContract: (String) -> Unit,
     isMarketOpen: Boolean = true,
     isPhysicalBullionOpen: Boolean = true,
+    marketSessionDetail: String = "",
     modifier: Modifier = Modifier
 ) {
     val isDark = LocalIsDarkTheme.current
     var selectedCategory by remember { mutableStateOf(BullionBoardCategory.ALL) }
 
-    val baseContracts = if (isPhysicalBullionOpen) {
-        contracts
-    } else {
-        contracts.filterNot { it.id == "gold_999" || it.id == "silver_1kg" }
+    val baseContracts = when {
+        !isMarketOpen -> emptyList()
+        isPhysicalBullionOpen -> contracts
+        else -> contracts.filterNot { it.id == "gold_999" || it.id == "silver_1kg" }
     }
 
     val filteredList = when (selectedCategory) {
@@ -81,57 +82,76 @@ fun VijayBullionRateBoard(
             )
         }
 
-        // Category Filter Chips
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            BullionBoardCategory.entries.forEach { cat ->
-                val isSelected = selectedCategory == cat
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = if (isSelected) {
-                        if (isDark) GoldGlow else Color(0xFFFEF3C7)
-                    } else {
-                        if (isDark) TitaniumDarkSurface else Color(0xFFF1F5F9)
-                    },
-                    border = androidx.compose.foundation.BorderStroke(
-                        1.dp,
-                        if (isSelected) (if (isDark) GoldPrimary else Color(0xFFB45309)) else (if (isDark) TitaniumBorder else Color(0xFFE2E8F0))
-                    ),
-                    modifier = Modifier
-                        .clickable { selectedCategory = cat }
-                        .testTag("rate_board_tab_${cat.name.lowercase()}")
-                ) {
-                    Text(
-                        text = cat.title,
+        if (isMarketOpen) {
+            // Category Filter Chips
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                BullionBoardCategory.entries.forEach { cat ->
+                    val isSelected = selectedCategory == cat
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
                         color = if (isSelected) {
-                            if (isDark) GoldLight else Color(0xFFB45309)
+                            if (isDark) GoldGlow else Color(0xFFFEF3C7)
                         } else {
-                            if (isDark) TextMutedSecondary else Color(0xFF64748B)
+                            if (isDark) TitaniumDarkSurface else Color(0xFFF1F5F9)
                         },
-                        fontSize = 10.5.sp,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
-                    )
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            if (isSelected) (if (isDark) GoldPrimary else Color(0xFFB45309)) else (if (isDark) TitaniumBorder else Color(0xFFE2E8F0))
+                        ),
+                        modifier = Modifier
+                            .clickable { selectedCategory = cat }
+                            .testTag("rate_board_tab_${cat.name.lowercase()}")
+                    ) {
+                        Text(
+                            text = cat.title,
+                            color = if (isSelected) {
+                                if (isDark) GoldLight else Color(0xFFB45309)
+                            } else {
+                                if (isDark) TextMutedSecondary else Color(0xFF64748B)
+                            },
+                            fontSize = 10.5.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                        )
+                    }
                 }
             }
         }
 
         // Rate Cards
-        if (filteredList.isEmpty()) {
+        if (!isMarketOpen || filteredList.isEmpty()) {
             Card(
                 shape = RoundedCornerShape(12.dp),
                 colors = CardDefaults.cardColors(containerColor = if (isDark) Color(0xFF241010) else Color(0xFFFEF2F2)),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFF5252).copy(alpha = 0.5f)),
-                modifier = Modifier.fillMaxWidth()
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFF5252).copy(alpha = 0.55f)),
+                modifier = Modifier.fillMaxWidth().testTag("rate_board_closed_notice")
             ) {
-                Text(
-                    text = "Physical bullion rates in this category are closed right now and will appear when the market opens.",
-                    color = if (isDark) Color(0xFFFFC5C5) else Color(0xFF7F1D1D),
-                    fontSize = 11.5.sp,
-                    modifier = Modifier.padding(14.dp)
-                )
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = if (!isMarketOpen) {
+                            "Market closes at 12:00 AM IST. Live rates are hidden while trading is closed."
+                        } else {
+                            "Physical bullion rates in this category are closed right now and will appear when the market opens."
+                        },
+                        color = if (isDark) Color(0xFFFFC5C5) else Color(0xFF7F1D1D),
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    if (!isMarketOpen) {
+                        Text(
+                            text = marketSessionDetail.ifBlank { "Reopens at 09:00 AM IST" },
+                            color = if (isDark) Color(0xFFFF8A80) else Color(0xFFB91C1C),
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
             }
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

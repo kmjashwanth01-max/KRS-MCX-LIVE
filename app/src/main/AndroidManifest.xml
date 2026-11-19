@@ -9,7 +9,19 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
+    <queries>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+    </queries>
 
     <application
         android:allowBackup="true"
@@ -46,7 +58,7 @@
                 android:resource="@xml/widget_bullion_info" />
         </receiver>
 
-        <!-- Dedicated Silver-Only (MCX + 1kg Physical) Home Screen App Widget Provider -->
+        <!-- Dedicated Silver-Only (MCX + 1kg Physical + Silver Cent $) Home Screen App Widget Provider -->
         <receiver
             android:name="com.example.widget.SilverAppWidgetProvider"
             android:exported="true"
@@ -59,6 +71,12 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/widget_silver_info" />
         </receiver>
+
+        <!-- Foreground 1s Live Ticker Service for Home Screen Widgets -->
+        <service
+            android:name="com.example.widget.WidgetLiveTickerService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
         <!-- FileProvider for Sharing Installable APK and Account Text Files -->
         <provider

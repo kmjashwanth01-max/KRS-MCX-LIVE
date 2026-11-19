@@ -12,14 +12,17 @@ import com.example.MainActivity
 import com.example.R
 import com.example.data.VijayBullionApiClient
 import com.example.data.VijayBullionFeed
+import com.example.model.PriceTickDirection
 import kotlinx.coroutines.*
 import java.text.SimpleDateFormat
 import java.util.*
 
 /**
- * Dedicated Silver-Only Home Screen Widget showing ONLY:
+ * Dedicated Silver Home Screen Widget showing:
  * 1) Silver MCX (1kg Futures LTP + Bid/Ask)
  * 2) Silver 1kg (Physical Bar rate, automatically displaying "Closed" when market/physical desk is closed)
+ * 3) Silver Cent ($) (1-second live international Spot Silver USD/oz)
+ * All rates update every 1 second with Green/Red movement colors.
  */
 class SilverAppWidgetProvider : AppWidgetProvider() {
 
@@ -40,28 +43,39 @@ class SilverAppWidgetProvider : AppWidgetProvider() {
         @Volatile
         private var hasReceivedRealApiResponse: Boolean = false
 
+        @Volatile
+        private var lastDirections: WidgetTickDirections = WidgetTickDirections()
+
         private var tickerJob: Job? = null
 
         fun startOneSecondWidgetTicker(context: Context) {
             val appContext = context.applicationContext
+            WidgetLiveTickerService.ensureRunning(appContext)
             if (tickerJob?.isActive == true) return
+
+            lastKnownFeed = WidgetPriceTracker.loadLastFeed(appContext)
+            hasReceivedRealApiResponse = hasReceivedRealApiResponse || WidgetPriceTracker.hasReceivedRealResponse(appContext)
 
             tickerJob = scope.launch {
                 while (isActive) {
+                    if (!WidgetPriceTracker.hasActiveWidgets(appContext)) {
+                        delay(2000L)
+                        continue
+                    }
                     try {
-                        val liveFeed = VijayBullionApiClient.fetchLatestBroadcast()
-                        if (liveFeed != null) {
-                            lastKnownFeed = liveFeed
-                            isLastFetchSuccessful = true
-                            hasReceivedRealApiResponse = true
-                            updateAllWidgets(appContext, liveFeed)
-                        } else {
-                            isLastFetchSuccessful = false
-                            updateAllWidgets(appContext, lastKnownFeed)
+                        if (WidgetPriceTracker.shouldBackgroundServicePoll()) {
+                            val rawFeed = withTimeoutOrNull(2500L) {
+                                VijayBullionApiClient.fetchLatestBroadcast()
+                            }
+                            if (rawFeed != null) {
+                                val validated = VijayBullionApiClient.autoCorrectAndValidateFeed(rawFeed, lastKnownFeed)
+                                updateAllWidgets(appContext, validated, markSynced = true)
+                            } else {
+                                updateAllWidgets(appContext, lastKnownFeed, markSynced = hasReceivedRealApiResponse)
+                            }
                         }
                     } catch (_: Exception) {
-                        isLastFetchSuccessful = false
-                        updateAllWidgets(appContext, lastKnownFeed)
+                        updateAllWidgets(appContext, lastKnownFeed, markSynced = hasReceivedRealApiResponse)
                     }
                     delay(1000L)
                 }
@@ -71,32 +85,50 @@ class SilverAppWidgetProvider : AppWidgetProvider() {
         fun formatSilverRatesForWidget(
             feed: VijayBullionFeed,
             marketOpen: Boolean,
-            physicalOpen: Boolean
+            physicalOpen: Boolean,
+            directions: WidgetTickDirections = WidgetTickDirections(),
+            reopenNote: String = "Reopens 9:00 AM IST"
         ): SilverWidgetDisplay {
             val mcxLtp = if (feed.mcxSilverLtp > 0) feed.mcxSilverLtp else feed.mcxSilverBid
-            val mcxPriceStr = "₹${String.format("%,.0f", mcxLtp)}"
-            val mcxSubStr = "B:₹${String.format("%,.0f", feed.mcxSilverBid)} • A:₹${String.format("%,.0f", feed.mcxSilverAsk)}"
-            val physicalPriceStr = if (physicalOpen && feed.silverBarRate1kg > 0) {
+            val mcxPriceStr = if (marketOpen) "₹${String.format("%,.0f", mcxLtp)}" else "CLOSED"
+            val mcxArrow = WidgetPriceTracker.arrowForDirection(directions.mcxSilver)
+            val mcxSubStr = if (marketOpen) {
+                "$mcxArrow B:₹${String.format("%,.0f", feed.mcxSilverBid)} • A:₹${String.format("%,.0f", feed.mcxSilverAsk)}"
+            } else {
+                reopenNote
+            }
+            val physicalPriceStr = if (marketOpen && physicalOpen && feed.silverBarRate1kg > 0) {
                 "₹${String.format("%,.0f", feed.silverBarRate1kg)}"
             } else {
-                "Closed"
+                "CLOSED"
             }
-            val physicalSubStr = if (physicalOpen && feed.silverBarRate1kg > 0) {
-                "Physical 1kg"
+            val physicalSubStr = if (marketOpen && physicalOpen && feed.silverBarRate1kg > 0) {
+                "Physical 1kg ${WidgetPriceTracker.arrowForDirection(directions.silver1kg)}"
             } else {
-                "Market Closed"
+                reopenNote
+            }
+            val centPriceStr = if (marketOpen) "$${String.format("%.2f", feed.spotSilverBid)}" else "CLOSED"
+            val centSubStr = if (marketOpen) {
+                "Spot Cent/Oz ${WidgetPriceTracker.arrowForDirection(directions.spotSilverCent)}"
+            } else {
+                "Closed at 12 AM • $reopenNote"
             }
             val summaryStr = if (marketOpen) {
-                "Silver MCX + 1kg Physical • 1s Live"
+                "Silver MCX + 1kg + Cent ($) • 1s Live"
             } else {
-                "MCX Closed • Opens Mon-Fri 09:00 AM IST"
+                "Market Closed (12 AM) • $reopenNote"
             }
             return SilverWidgetDisplay(
                 mcxSilverPrice = mcxPriceStr,
                 mcxSilverSub = mcxSubStr,
                 physicalSilver1kgPrice = physicalPriceStr,
                 physicalSilver1kgSub = physicalSubStr,
-                summaryText = summaryStr
+                summaryText = summaryStr,
+                silverCentPrice = centPriceStr,
+                silverCentSub = centSubStr,
+                mcxDirection = if (marketOpen) directions.mcxSilver else PriceTickDirection.DOWN,
+                physicalDirection = if (marketOpen && physicalOpen) directions.silver1kg else PriceTickDirection.DOWN,
+                centDirection = if (marketOpen) directions.spotSilverCent else PriceTickDirection.DOWN
             )
         }
 
@@ -104,35 +136,76 @@ class SilverAppWidgetProvider : AppWidgetProvider() {
             context: Context,
             appWidgetManager: AppWidgetManager,
             appWidgetId: Int,
-            feed: VijayBullionFeed
+            feed: VijayBullionFeed,
+            directions: WidgetTickDirections = lastDirections
         ) {
             val views = RemoteViews(context.packageName, R.layout.widget_silver_rates)
             val timeStr = timeSecondsFormat.format(Date())
-            val marketOpen = BullionAppWidgetProvider.isMcxMarketOpen() &&
-                !(hasReceivedRealApiResponse && feed.isServerExplicitlyClosed)
-            val physicalOpen = marketOpen && (!hasReceivedRealApiResponse || feed.hasPhysicalBullionQuotes)
+            val realResponseSeen = hasReceivedRealApiResponse || WidgetPriceTracker.hasReceivedRealResponse(context)
+            val serverClosed = realResponseSeen && feed.isServerExplicitlyClosed
+            val marketOpen = BullionAppWidgetProvider.isMcxMarketOpen() && !serverClosed
+            val physicalOpen = marketOpen && (!realResponseSeen || feed.hasPhysicalBullionQuotes)
+            val reopenNote = BullionAppWidgetProvider.getMarketReopenLabel(serverClosed)
 
-            val display = formatSilverRatesForWidget(feed, marketOpen, physicalOpen)
+            val display = formatSilverRatesForWidget(feed, marketOpen, physicalOpen, directions, reopenNote)
             val statusStr = when {
-                !marketOpen -> "🔴 Closed • $timeStr"
-                !isLastFetchSuccessful -> "🟡 Syncing • $timeStr"
-                else -> "🟢 Live 1s • $timeStr"
+                !marketOpen -> "🔴 Closed • $reopenNote • $timeStr"
+                isLastFetchSuccessful || realResponseSeen -> "🟢 Live 1s • $timeStr"
+                else -> "🟡 Syncing • $timeStr"
+            }
+            val statusColor = when {
+                !marketOpen -> Color.parseColor("#FF8A80")
+                isLastFetchSuccessful || realResponseSeen -> Color.parseColor("#00E676")
+                else -> Color.parseColor("#FFD700")
             }
 
+            // Box 1: Silver MCX (1kg)
             views.setTextViewText(R.id.silver_widget_mcx_price, display.mcxSilverPrice)
+            views.setTextColor(
+                R.id.silver_widget_mcx_price,
+                if (marketOpen) WidgetPriceTracker.colorForDirection(display.mcxDirection) else WidgetPriceTracker.COLOR_DOWN
+            )
             views.setTextViewText(R.id.silver_widget_mcx_sub, display.mcxSilverSub)
+            views.setTextColor(
+                R.id.silver_widget_mcx_sub,
+                when {
+                    !marketOpen -> WidgetPriceTracker.SUB_COLOR_DOWN
+                    display.mcxDirection == PriceTickDirection.UNCHANGED -> Color.parseColor("#94A3B8")
+                    else -> WidgetPriceTracker.subColorForDirection(display.mcxDirection)
+                }
+            )
+
+            // Box 2: Silver 1kg (Physical)
             views.setTextViewText(R.id.silver_widget_physical_price, display.physicalSilver1kgPrice)
             views.setTextColor(
                 R.id.silver_widget_physical_price,
-                if (physicalOpen) Color.WHITE else Color.parseColor("#FF5252")
+                if (marketOpen && physicalOpen) WidgetPriceTracker.colorForDirection(display.physicalDirection) else WidgetPriceTracker.COLOR_DOWN
             )
             views.setTextViewText(R.id.silver_widget_physical_sub, display.physicalSilver1kgSub)
             views.setTextColor(
                 R.id.silver_widget_physical_sub,
-                if (physicalOpen) Color.parseColor("#81C784") else Color.parseColor("#FF8A80")
+                if (marketOpen && physicalOpen) WidgetPriceTracker.subColorForDirection(display.physicalDirection) else WidgetPriceTracker.SUB_COLOR_DOWN
             )
+
+            // Box 3: Silver Cent ($)
+            views.setTextViewText(R.id.silver_widget_cent_price, display.silverCentPrice)
+            views.setTextColor(
+                R.id.silver_widget_cent_price,
+                if (marketOpen) WidgetPriceTracker.colorForDirection(display.centDirection) else WidgetPriceTracker.COLOR_DOWN
+            )
+            views.setTextViewText(R.id.silver_widget_cent_sub, display.silverCentSub)
+            views.setTextColor(
+                R.id.silver_widget_cent_sub,
+                if (marketOpen) WidgetPriceTracker.subColorForDirection(display.centDirection) else WidgetPriceTracker.SUB_COLOR_DOWN
+            )
+
             views.setTextViewText(R.id.silver_widget_summary, display.summaryText)
+            views.setTextColor(
+                R.id.silver_widget_summary,
+                if (marketOpen) Color.parseColor("#CBD5E1") else Color.parseColor("#FF8A80")
+            )
             views.setTextViewText(R.id.silver_widget_status, statusStr)
+            views.setTextColor(R.id.silver_widget_status, statusColor)
 
             val launchIntent = Intent(context, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -146,6 +219,7 @@ class SilverAppWidgetProvider : AppWidgetProvider() {
             views.setOnClickPendingIntent(R.id.silver_widget_root, pendingLaunch)
             views.setOnClickPendingIntent(R.id.silver_widget_mcx_box, pendingLaunch)
             views.setOnClickPendingIntent(R.id.silver_widget_physical_box, pendingLaunch)
+            views.setOnClickPendingIntent(R.id.silver_widget_cent_box, pendingLaunch)
 
             val refreshIntent = Intent(context, SilverAppWidgetProvider::class.java).apply {
                 action = ACTION_REFRESH_SILVER_RATES
@@ -162,16 +236,32 @@ class SilverAppWidgetProvider : AppWidgetProvider() {
             appWidgetManager.updateAppWidget(appWidgetId, views)
         }
 
-        fun updateAllWidgets(context: Context, feed: VijayBullionFeed) {
+        fun updateAllWidgets(
+            context: Context,
+            feed: VijayBullionFeed,
+            markSynced: Boolean? = null
+        ) {
             try {
                 lastKnownFeed = feed
+                if (markSynced == true) {
+                    isLastFetchSuccessful = true
+                    hasReceivedRealApiResponse = true
+                } else if (markSynced == false && !hasReceivedRealApiResponse) {
+                    isLastFetchSuccessful = false
+                }
+                val dirs = WidgetPriceTracker.updateWithFeed(
+                    context = context,
+                    newFeed = feed,
+                    markRealApi = (markSynced == true)
+                )
+                lastDirections = dirs
                 val appWidgetManager = AppWidgetManager.getInstance(context) ?: return
                 val thisWidget = ComponentName(context, SilverAppWidgetProvider::class.java)
                 val allWidgetIds = appWidgetManager.getAppWidgetIds(thisWidget)
                 if (allWidgetIds != null && allWidgetIds.isNotEmpty()) {
                     for (id in allWidgetIds) {
                         try {
-                            updateWidgetViews(context, appWidgetManager, id, feed)
+                            updateWidgetViews(context, appWidgetManager, id, feed, dirs)
                         } catch (_: Throwable) {}
                     }
                 }
@@ -189,9 +279,12 @@ class SilverAppWidgetProvider : AppWidgetProvider() {
         appWidgetManager: AppWidgetManager,
         appWidgetIds: IntArray
     ) {
+        lastKnownFeed = WidgetPriceTracker.loadLastFeed(context)
+        val dirs = WidgetPriceTracker.updateWithFeed(context, lastKnownFeed)
+        lastDirections = dirs
         startOneSecondWidgetTicker(context)
         for (appWidgetId in appWidgetIds) {
-            updateWidgetViews(context, appWidgetManager, appWidgetId, lastKnownFeed)
+            updateWidgetViews(context, appWidgetManager, appWidgetId, lastKnownFeed, dirs)
         }
     }
 
@@ -199,6 +292,7 @@ class SilverAppWidgetProvider : AppWidgetProvider() {
         super.onDisabled(context)
         tickerJob?.cancel()
         tickerJob = null
+        WidgetLiveTickerService.stopIfNoWidgets(context)
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -207,19 +301,17 @@ class SilverAppWidgetProvider : AppWidgetProvider() {
         if (intent.action == ACTION_REFRESH_SILVER_RATES) {
             scope.launch {
                 try {
-                    val liveFeed = VijayBullionApiClient.fetchLatestBroadcast()
+                    val liveFeed = withTimeoutOrNull(2500L) {
+                        VijayBullionApiClient.fetchLatestBroadcast()
+                    }
                     if (liveFeed != null) {
-                        lastKnownFeed = liveFeed
-                        isLastFetchSuccessful = true
-                        hasReceivedRealApiResponse = true
-                        updateAllWidgets(context, liveFeed)
+                        val validated = VijayBullionApiClient.autoCorrectAndValidateFeed(liveFeed, lastKnownFeed)
+                        updateAllWidgets(context, validated, markSynced = true)
                     } else {
-                        isLastFetchSuccessful = false
-                        updateAllWidgets(context, lastKnownFeed)
+                        updateAllWidgets(context, lastKnownFeed, markSynced = hasReceivedRealApiResponse)
                     }
                 } catch (_: Exception) {
-                    isLastFetchSuccessful = false
-                    updateAllWidgets(context, lastKnownFeed)
+                    updateAllWidgets(context, lastKnownFeed, markSynced = hasReceivedRealApiResponse)
                 }
             }
         }
@@ -231,5 +323,11 @@ data class SilverWidgetDisplay(
     val mcxSilverSub: String,
     val physicalSilver1kgPrice: String,
     val physicalSilver1kgSub: String,
-    val summaryText: String
+    val summaryText: String,
+    val silverCentPrice: String = "$52.01",
+    val silverCentSub: String = "Spot Cent/Oz •",
+    val mcxDirection: PriceTickDirection = PriceTickDirection.UNCHANGED,
+    val physicalDirection: PriceTickDirection = PriceTickDirection.UNCHANGED,
+    val centDirection: PriceTickDirection = PriceTickDirection.UNCHANGED
 )
+

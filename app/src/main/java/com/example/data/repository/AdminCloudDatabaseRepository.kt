@@ -1170,8 +1170,10 @@ class AdminCloudDatabaseRepository(
     suspend fun listUpdatesHistory(): Result<List<CloudAppUpdateRecord>> = runCatching {
         val path = "updates"
         var lastError: Exception? = null
+        var sdkSucceeded = false
         val sdkList = try {
             val snap = db.collection(path).get().await()
+            sdkSucceeded = true
             snap.documents.mapNotNull { parseUpdateRecordSnapshot(it) }
                 .sortedWith(
                     compareByDescending<CloudAppUpdateRecord> { it.versionCode }
@@ -1184,28 +1186,18 @@ class AdminCloudDatabaseRepository(
             emptyList()
         }
 
-        val restList = fetchUpdatesCollectionViaRestApi()
-        if (restList.isNotEmpty()) {
-            // Merge preferring SDK timestamps where IDs match while including any newer REST docs
-            val byId = LinkedHashMap<String, CloudAppUpdateRecord>()
-            restList.forEach { byId[it.id] = it }
-            sdkList.forEach { sdkItem ->
-                val existing = byId[sdkItem.id]
-                if (existing == null || sdkItem.versionCode >= existing.versionCode) {
-                    byId[sdkItem.id] = sdkItem
-                }
-            }
-            byId.values.sortedWith(
-                compareByDescending<CloudAppUpdateRecord> { it.versionCode }
-                    .thenByDescending { it.updatedAt?.toDate()?.time ?: it.createdAt?.toDate()?.time ?: 0L }
-            )
-        } else if (sdkList.isNotEmpty()) {
+        if (sdkSucceeded) {
             sdkList
-        } else if (lastError != null) {
-            handleFirestoreError(lastError, OperationType.LIST, path)
-            throw lastError
         } else {
-            emptyList()
+            val restList = fetchUpdatesCollectionViaRestApi()
+            if (restList.isNotEmpty()) {
+                restList
+            } else if (lastError != null) {
+                handleFirestoreError(lastError, OperationType.LIST, path)
+                throw lastError
+            } else {
+                emptyList()
+            }
         }
     }
 
@@ -1262,8 +1254,11 @@ class AdminCloudDatabaseRepository(
     suspend fun getAppUpdateConfig(): Result<CloudAppUpdateConfig?> = runCatching {
         val docRef = db.collection("app_config").document("app_update")
         var lastError: Exception? = null
+        var legacyReadOk = false
         val sdkLegacy = try {
-            parseAppUpdateSnapshot(docRef.get().await())
+            val snap = docRef.get().await()
+            legacyReadOk = true
+            parseAppUpdateSnapshot(snap)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -1271,9 +1266,11 @@ class AdminCloudDatabaseRepository(
             null
         }
 
+        var updatesReadOk = false
         val sdkUpdates = try {
-            db.collection("updates").get().await()
-                .documents.mapNotNull { parseUpdateRecordSnapshot(it)?.toConfig() }
+            val snap = db.collection("updates").get().await()
+            updatesReadOk = true
+            snap.documents.mapNotNull { parseUpdateRecordSnapshot(it)?.toConfig() }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -1281,17 +1278,21 @@ class AdminCloudDatabaseRepository(
             emptyList()
         }
 
-        val restLegacy = fetchAppUpdateConfigViaRestApi()
-        val restUpdates = fetchUpdatesCollectionViaRestApi().map { it.toConfig() }
-
-        val best = selectBestUpdateConfig(listOf(sdkLegacy, restLegacy) + sdkUpdates + restUpdates)
-        if (best != null) {
-            best
-        } else if (lastError != null && sdkLegacy == null && sdkUpdates.isEmpty()) {
-            handleFirestoreError(lastError, OperationType.GET, docRef.path)
-            throw lastError
+        val sdkBest = selectBestUpdateConfig(listOf(sdkLegacy) + sdkUpdates)
+        if (legacyReadOk || updatesReadOk) {
+            sdkBest
         } else {
-            null
+            val restLegacy = fetchAppUpdateConfigViaRestApi()
+            val restUpdates = fetchUpdatesCollectionViaRestApi().map { it.toConfig() }
+            val restBest = selectBestUpdateConfig(listOf(restLegacy) + restUpdates)
+            if (restBest != null) {
+                restBest
+            } else if (lastError != null) {
+                handleFirestoreError(lastError, OperationType.GET, docRef.path)
+                throw lastError
+            } else {
+                null
+            }
         }
     }
 
@@ -1506,6 +1507,146 @@ class AdminCloudDatabaseRepository(
             throw e
         } catch (e: Exception) {
             handleFirestoreError(e, OperationType.WRITE, updatesDocRef.path)
+            throw e
+        }
+    }
+
+    /**
+     * Deletes a specific released update from `/updates/{updateId}` (plus its auto-posted
+     * "Update v... Available" announcement), and either promotes the next remaining enabled
+     * update or resets `/app_config/app_update` to the disabled v1.0 baseline.
+     * Strictly restricted to Admin in firestore.rules (`allow delete: if isAdmin()`).
+     */
+    suspend fun deleteAppUpdateAsAdmin(updateRecord: CloudAppUpdateRecord): Result<Unit> = runCatching {
+        val adminUid = auth.currentUser?.uid
+            ?: throw IllegalStateException("Admin must be signed in with Admin Cloud Account before deleting updates.")
+        ensureAdminDocIfEligible()
+
+        val updatesCollection = db.collection("updates")
+        val targetDocId = updateRecord.id.ifBlank {
+            val safeVerSlug = updateRecord.versionName.trim().lowercase().replace(Regex("[^a-z0-9_\\-]"), "_").ifBlank { "rel" }
+            "v${safeVerSlug}_b${updateRecord.versionCode}".take(80)
+        }
+        val updateDocRef = updatesCollection.document(targetDocId)
+        val configDocRef = db.collection("app_config").document("app_update")
+
+        try {
+            updateDocRef.delete().await()
+
+            // Remove auto-posted release announcements for this version
+            runCatching {
+                val expectedTitle = "Update v${updateRecord.versionName.trim()} Available"
+                val annSnap = db.collection("announcements").get().await()
+                for (doc in annSnap.documents) {
+                    val title = doc.getString("title").orEmpty()
+                    if (title.equals(expectedTitle, ignoreCase = true)) {
+                        doc.reference.delete().await()
+                    }
+                }
+            }
+
+            // Recompute /app_config/app_update from remaining releases
+            val remainingSnap = updatesCollection.get().await()
+            val remainingEnabled = remainingSnap.documents
+                .mapNotNull { parseUpdateRecordSnapshot(it) }
+                .filter { it.id != targetDocId && it.isUpdateEnabled && it.versionCode > 1L }
+                .sortedWith(
+                    compareByDescending<CloudAppUpdateRecord> { it.versionCode }
+                        .thenByDescending { it.updatedAt?.toDate()?.time ?: it.createdAt?.toDate()?.time ?: 0L }
+                )
+
+            val nextRelease = remainingEnabled.firstOrNull()
+            val newConfigPayload = if (nextRelease != null) {
+                mapOf(
+                    "latestVersionCode" to nextRelease.versionCode,
+                    "latestVersionName" to nextRelease.versionName,
+                    "apkDownloadUrl" to nextRelease.apkDownloadUrl,
+                    "releaseNotes" to nextRelease.releaseNotes,
+                    "isForceUpdate" to nextRelease.isForceUpdate,
+                    "isUpdateEnabled" to nextRelease.isUpdateEnabled,
+                    "updatedBy" to adminUid.take(128),
+                    "targetUsername" to nextRelease.targetUsername,
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+            } else {
+                mapOf(
+                    "latestVersionCode" to 1L,
+                    "latestVersionName" to "1.0",
+                    "apkDownloadUrl" to "",
+                    "releaseNotes" to "KRS Gold & Silver Live MCX v1.0 is up to date.",
+                    "isForceUpdate" to false,
+                    "isUpdateEnabled" to false,
+                    "updatedBy" to adminUid.take(128),
+                    "targetUsername" to "",
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+            }
+            configDocRef.set(newConfigPayload).await()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.DELETE, updateDocRef.path)
+            throw e
+        }
+    }
+
+    /**
+     * Deletes ALL released updates in `/updates` (keeping or resetting clean disabled v1.0 state),
+     * clears auto-posted "Update v... Available" announcements, and resets `/app_config/app_update`
+     * to disabled v1.0 baseline. Strictly restricted to Admin in firestore.rules.
+     */
+    suspend fun deleteAllReleasedUpdatesAsAdmin(): Result<Int> = runCatching {
+        val adminUid = auth.currentUser?.uid
+            ?: throw IllegalStateException("Admin must be signed in with Admin Cloud Account before deleting updates.")
+        ensureAdminDocIfEligible()
+
+        val updatesCollection = db.collection("updates")
+        val configDocRef = db.collection("app_config").document("app_update")
+
+        try {
+            val allSnap = updatesCollection.get().await()
+            var deletedCount = 0
+            for (doc in allSnap.documents) {
+                val versionCode = doc.getLong("versionCode") ?: 1L
+                val isEnabled = doc.getBoolean("isUpdateEnabled") ?: false
+                if (doc.id != "v1_0_initial" || versionCode > 1L || isEnabled) {
+                    doc.reference.delete().await()
+                    deletedCount++
+                }
+            }
+
+            // Clean any auto-posted update announcements
+            runCatching {
+                val annSnap = db.collection("announcements").get().await()
+                for (doc in annSnap.documents) {
+                    val title = doc.getString("title").orEmpty().trim()
+                    if (title.startsWith("Update v", ignoreCase = true) &&
+                        title.endsWith("Available", ignoreCase = true)
+                    ) {
+                        doc.reference.delete().await()
+                    }
+                }
+            }
+
+            configDocRef.set(
+                mapOf(
+                    "latestVersionCode" to 1L,
+                    "latestVersionName" to "1.0",
+                    "apkDownloadUrl" to "",
+                    "releaseNotes" to "KRS Gold & Silver Live MCX v1.0 is up to date.",
+                    "isForceUpdate" to false,
+                    "isUpdateEnabled" to false,
+                    "updatedBy" to adminUid.take(128),
+                    "targetUsername" to "",
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+            ).await()
+
+            deletedCount
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.DELETE, "updates")
             throw e
         }
     }
